@@ -1077,3 +1077,32 @@ test('a task left pending poisons no later task, nor its own next start', async 
   await accept()
   expect((await view()).tasks.find(t => t.claim.taskId === '1')?.verdict.state).toBe('verified')
 })
+
+for (const how of ['cancelled', 'failed'] as const)
+  test(`guard: a run that ran something, was stopped by a turn and ${how}, is not owed again`, async () => {
+    const { w, $, ops, allow, work, endTurn, view } = world()
+    w.files['package.json'] = JSON.stringify({ scripts: { test: 'bun test', typecheck: 'tsc --noEmit' } })
+    await allow()
+    await work()
+    if (how === 'failed') w.code = 1
+    const { spawn } = $.process
+    ;($ as unknown as { process: { spawn: unknown } }).process.spawn = (q: never) => {
+      if (w.spawned.length === 0) w.work = { ...w.work, turnEnded: false }
+      return spawn(q)
+    }
+    const cancels = {
+      ...ops,
+      work: async () => {
+        const seen = await ops.work()
+        // The run has been told the turn began; only then does the person cancel it.
+        if (how === 'cancelled' && w.spawned.length > 0 && !seen.turnEnded && proof.liveRuns().size > 0) await proof.pressCancel(ROOT)
+        return seen
+      },
+    }
+    await proof.proofTurnEnded($, cancels, { isMain: true, reason: 'answer' })
+    await pause(250)
+    expect(w.spawned.length).toBe(1)
+    await endTurn()
+    expect(w.spawned.length).toBe(1)
+    if (how === 'failed') expect((await view()).roots[0]?.verdict.state).toBe('failed')
+  })
