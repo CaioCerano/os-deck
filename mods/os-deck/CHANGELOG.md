@@ -12,7 +12,7 @@
 - **Changed check scripts pause the checks** until you see them and allow them again.
 - **History** of runs, claims and reviews is kept, and never counted as evidence.
 - **Changed: once a repository is allowed,** a task's start and completion wait up to 1.5 seconds while its content is read. With Agent Proof not set up nothing changes.
-- The limits are listed in the README.
+- **Windows only.** Elsewhere Agent Proof refuses to start. The other limits are listed in the README.
 
 ## os-deck 0.4.3
 

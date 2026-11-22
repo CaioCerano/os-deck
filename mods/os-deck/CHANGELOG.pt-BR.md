@@ -12,7 +12,7 @@
 - **Scripts de check alterados pausam os checks** até você ver e liberar de novo.
 - **O histórico** de execuções, alegações e revisões é guardado, e nunca conta como evidência.
 - **Mudou: com um repositório liberado,** o início e a conclusão de uma tarefa esperam até 1,5 segundo enquanto o conteúdo é lido. Sem configurar o Agent Proof nada muda.
-- Os limites estão listados no README.
+- **Só no Windows.** Fora dele o Agent Proof se recusa a começar. Os outros limites estão listados no README.
 
 ## os-deck 0.4.3
 

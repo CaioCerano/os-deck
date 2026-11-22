@@ -8,10 +8,10 @@ const command = (args: string, kind = 'composer') => ({ command: 'os-deck', args
 const paneAt = (columns = 80, rows = 70, placement = 'dock') =>
   ({ plugin: 'os-deck', component: 'Pane', requestId: 'flightdeck', surface: 'terminal', props: { title: 'OS-Deck', bodyColumns: columns, scroll: { offset: 0, bodyRows: rows }, isFocused: true, placement, view: {} }, viewport: { columns, rows } }) as never
 
-const world = (on: On) => {
+const world = (on: On, cwd = 'C:/repo') => {
   const clock = mock.clock(on)
   const files: Record<string, string> = { 'package.json': JSON.stringify({ scripts: { test: 'bun test' } }), 'a.ts': 'one' }
-  const seen = { spawned: [] as string[][], git: 0 }
+  const seen = { spawned: [] as string[][], git: 0, listed: 0 }
   const db = new Map<string, unknown>()
   const hash = (s: string) => {
     let h = 7
@@ -22,7 +22,7 @@ const world = (on: On) => {
   on('ui.toast', () => ({ value: undefined }) as never)
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('agent.list', () => ({ value: [] }) as never)
-  on('session.cwd', () => ({ value: '/repo' }) as never)
+  on('session.cwd', () => ({ value: cwd }) as never)
   on('session.id', () => ({ value: 'DOCK' }) as never)
   on('store.get', (_$, e) => ({ value: db.get((e as unknown as { key: string }).key) }) as never)
   on('store.set', (_$, e) => {
@@ -33,6 +33,7 @@ const world = (on: On) => {
   on('store.delete', () => ({ value: undefined }) as never)
   on('store.keys', () => ({ value: [...db.keys()] }) as never)
   on('fs.list', (_$, e) => {
+    seen.listed += 1
     const path = String((e as unknown as { path?: string }).path ?? '').replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
     const entries = path === '/repo' ? [{ name: '.git', kind: 'dir', size: 0, isLink: false }, ...Object.keys(files).map(name => ({ name, kind: 'file', size: 20, isLink: false }))] : []
     return { value: entries } as never
@@ -48,7 +49,7 @@ const world = (on: On) => {
     const ok = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false } }) as never
     if (x.argv[0] !== 'git') return ok('', 127)
     seen.git += x.argv.includes('hash-object') ? 1 : 0
-    if (x.argv.includes('--show-toplevel')) return ok('/repo\n')
+    if (x.argv.includes('--show-toplevel')) return ok('C:/repo\n')
     if (x.argv.includes('--git-path')) return ok('.git/info/exclude\n')
     if (x.argv.includes('symbolic-ref')) return ok('refs/heads/main\n')
     if (x.argv.includes('--stage')) return ok(Object.keys(files).map(f => `100644 ${'a'.repeat(40)} 0\t${f}\0`).join(''))
@@ -152,7 +153,7 @@ const verified = async ($: any, w: ReturnType<typeof world>, subject = 'Change a
   await $.tool.call({ tool: 'TaskCreate', subject, description: 'd', tool_use_id: 'v1' } as never)
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress', tool_use_id: 'v2' } as never)
   w.files['a.ts'] = 'two'
-  if (editor) await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts', content: 'two', agentId: editor, tool_use_id: 'v3' } as never)
+  if (editor) await $.tool.call({ tool: 'Write', file_path: 'C:/repo/a.ts', content: 'two', agentId: editor, tool_use_id: 'v3' } as never)
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', tool_use_id: 'v4' } as never)
   await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'V1', reason: 'answer' } as never)
   await w.clock.advance(600)
@@ -237,3 +238,18 @@ test('M5: no mark that reads as a pass, and no letter that does not show, in a s
   expect(text).not.toContain(box)
   expect(text).not.toContain(hidden)
 })
+
+for (const cwd of ['/repo', '/Users/someone/repo', '\\\\host\\share\\repo'])
+  test(`off Windows Agent Proof allows nothing: ${cwd}`, async ($, on) => {
+    const { seen } = world(on, cwd)
+    for (const args of ['proof', 'proof setup', 'proof setup C:/repo', 'proof check lint -- node x.js', 'proof history']) {
+      const out = await $.command.run(command(args))
+      expect(out.text).toContain('Agent Proof works on Windows alone')
+    }
+    // Counted before the drawing, which has listings of its own.
+    const { listed } = seen
+    const text = await drawn($)
+    expect(text).not.toContain('proof setup')
+    expect(text).not.toContain('proof-allow')
+    expect([seen.git, seen.spawned.length, listed]).toEqual([0, 0, 0])
+  })

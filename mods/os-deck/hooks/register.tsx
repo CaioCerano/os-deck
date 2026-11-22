@@ -121,6 +121,7 @@ import { flushHistory, historyReport, inTurn, loadHistory, pruneHistory, recordD
 import { gitRead, readRepoState } from './safe-git'
 import { proofActions, proofCommand, proofEditSettled, proofEditStarted, proofSessionEnded, proofSessionStarted, proofTaskTool, proofToolDone, proofTurnEnded, proofTurnStarted } from './proof/controller'
 import { isProofOn, proofDock, unposed } from './proof/dock'
+import { unsupportedHere } from './proof/names'
 import type { Section } from './proof/view'
 import { EMPTY_PROOF, EMPTY_WORK, proofOf, workOf } from './proof/state'
 import type { ProofOps } from './proof/state'
@@ -987,6 +988,8 @@ export const register: Register = (on, options) => {
       return { text: 'OS-Deck reset.' }
     }
     if (verb === 'proof') {
+      const unsupported = unsupportedHere(await $.session.cwd())
+      if (unsupported) return { text: unsupported }
       const said = await proofCommand($, proofOps($), e.args.trim().slice(verb.length), e.origin.kind === 'composer')
       // Its setup, buttons and marks are the plan view's alone.
       const text = cfg.view === 'plan' ? said : `${said} Agent Proof is drawn only in the plan view: set \`view\` to plan with /plugin configure os-deck.`

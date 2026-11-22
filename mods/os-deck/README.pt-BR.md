@@ -133,7 +133,7 @@ O que saber antes de apertar allow:
 - Processos que um check deixa em segundo plano podem continuar depois dele.
 - Só uma gramática pequena roda no automático: `claude plugin test`, `bun test`, `bash <arquivo>`, `node <arquivo.js>`, algumas ferramentas (`tsc`, `eslint`, `prettier --check`, `jest`, `vitest run`, `vite build`, `pytest`, `ruff check`, `mypy`) com flags conhecidas, e `npm run <script>` quando o script é feito de palavras simples ligadas por `&&` dessas. Um programa desconhecido como `cargo` ou `make` é só manual. O resto é recusado: aspas, globs, variáveis, redirecionamentos, `npx`, `pnpm`, `yarn`, `turbo` e configurações de `.npmrc` que não se sabe serem inofensivas. O setup deixa de fora o que não pode liberar e avisa.
 - A contagem de testes é lida do `bun test`, do `claude plugin test` e de `bash …/run_all.sh` que imprime linhas `[PASS]`/`[FAIL]`. Outros runners não podem verificar, então o setup não os propõe. Typecheck, lint e build valem pelo código de saída.
-- No Windows, um check de npm é recusado quando um programa que ele roda é um link em `node_modules/.bin`: o setup não segue link ali, porque um poderia levar a um compartilhamento de rede. Fora do Windows o setup lê para onde esse link leva, antes de qualquer botão.
+- No Windows, um check de npm é recusado quando um programa que ele roda é um link em `node_modules/.bin`: o setup não segue link ali, porque um poderia levar a um compartilhamento de rede.
 - Um check de npm é recusado sob um workspace de uma pasta acima, que emprestaria a ele uma config que ninguém viu.
 - Um check de npm é recusado quando o nome de uma pasta tem o caractere que separa as entradas do PATH (`;` no Windows), que mandaria o npm para outra pasta.
 - Uma edição só conta como dentro de um repositório quando a ferramenta a nomeou com caminho completo. Uma relativa, sem drive ou com `~` conta como fora: não se sabe de qual pasta ela foi resolvida.
@@ -147,7 +147,7 @@ O que saber antes de apertar allow:
 - Depois de 1.000 alegações numa sessão, os checks param de rodar sozinhos: aperte verify.
 - Um repositório que não dá para ler com certeza (links, submódulos, repositórios aninhados, conflitos, mais de 20.000 arquivos) nunca é verificado.
 - Com um repositório liberado, o início e a conclusão de uma tarefa esperam até 1,5 segundo enquanto o conteúdo é lido.
-- Testado só no Windows 11.
+- **Só no Windows**, e testado só no Windows 11. Fora dele o `/os-deck proof` recusa e nada pode ser liberado; o resto do os-deck não muda.
 
 O desenho e o modelo de ameaças estão na [proposta](docs/proposals/agent-proof.md) (em inglês).
 

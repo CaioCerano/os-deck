@@ -38,3 +38,13 @@ export const placedPath = (given: string, cwd: string): string | null => {
 
 /** Slashes in place of backslashes in a drive's path, which `system` says it is. Off Windows a backslash is a letter. */
 export const slashed = (path: string, system = path) => (onWindows(system) ? path.replace(/\\/g, '/') : path)
+
+/**
+ * Why there is no Agent Proof where the session is; null on a drive of Windows. How names resolve on
+ * other systems' disks (case, Unicode, links) was never held against a real one, and each rule guessed
+ * wrong there was a false Verified: so nothing can be drafted there, and so nothing allowed.
+ */
+export const unsupportedHere = (cwd: string): string | null =>
+  /^[A-Za-z]:[\\/]/.test(cwd)
+    ? null
+    : 'OS-Deck proof: Agent Proof works on Windows alone, in a folder on a drive. Elsewhere it is untested, so nothing can be allowed. The rest of os-deck works as it does.'

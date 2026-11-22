@@ -293,6 +293,7 @@ As built, where it differs from the text above:
 - No command runs checks, `proof run` included: the engine stamps a clicked link as it stamps a typed command.
 - Commands are understood by a small positive grammar, held against real npm, cmd and sh, not by modelling shells: automatic inside it, manual only for an unknown program, refused otherwise.
 - Detection leaves out, and names, a check that could not be allowed or could not verify.
+- Windows only. Reviews on simulated POSIX and macOS disks kept finding false Verifieds in how names resolve there (case, Unicode folding, ignorable characters), known ones included, and none of it could be held against a real disk. The command refuses there; enabling it needs that work first.
 - A new allowance starts with no evidence. Which attempt counts is the order recorded, never the clock.
 - The executable bit is the index's; a change only on disk is not seen.
 
