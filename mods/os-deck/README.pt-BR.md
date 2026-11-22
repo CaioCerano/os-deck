@@ -119,7 +119,7 @@ No que ele confia:
 
 - Nunca na mensagem de um agente, na saída de uma ferramenta ou em "os testes passam", e nunca no histórico salvo, que é só histórico.
 - Só um botão apertado no dock libera ou roda sob demanda. Um comando só mostra ou rascunha: um link clicado chega igual a um comando digitado, então leia o rascunho antes de liberar.
-- Um arquivo vigiado que muda pausa os checks até você ver de novo e liberar: os scripts mostrados, os arquivos que eles mandam rodar, os manifestos e configs deles programas de mesmo nome, com qualquer extensão, em cada `node_modules/.bin` até a raiz do disco, e o `package.json` de cada pasta acima.
+- Um arquivo vigiado que muda pausa os checks até você ver de novo e liberar: os scripts mostrados, os arquivos que eles mandam rodar, os manifestos e configs deles, programas de mesmo nome, com qualquer extensão, em cada `node_modules/.bin` até a raiz do disco, e o `package.json` de cada pasta acima.
 - `/clear` e uma sessão nova derrubam toda liberação e toda evidência.
 
 O que saber antes de apertar allow:
