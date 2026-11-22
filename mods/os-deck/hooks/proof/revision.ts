@@ -5,7 +5,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import { gitHashRaw, gitRead, namesIn } from '../safe-git'
-import { foldCase, isWindowsOddName, slashed } from './names'
+import { foldCase, foldDrive, isWindowsOddName, slashed } from './names'
 import { sha256 } from './values'
 
 export type Revision =
@@ -23,10 +23,9 @@ const baseOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 export const isLocalPath = (path: string) => /^[A-Za-z]:[\\/]/.test(path) || /^\/(?![\\/])/.test(path)
 const isWindows = (path: string) => /^[A-Za-z]:/.test(path)
 
-/** One spelling of a directory: git's and the engine's differ in slashes and, on Windows, in case. */
+/** One spelling of a directory: git's and the engine's differ in slashes and in the drive's letter. */
 export const spellRoot = (path: string) => {
-  const s = slashed(path).replace(/\/+$/, '')
-  return isWindows(s) ? foldCase(s) : s
+  return foldDrive(slashed(path).replace(/\/+$/, ''))
 }
 
 export const samePath = (a: string, b: string) => spellRoot(a) === spellRoot(b)

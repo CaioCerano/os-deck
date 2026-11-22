@@ -3,7 +3,7 @@
 // What cannot be known is never "unchanged".
 import type { EngineInterface } from 'claude-code'
 
-import { foldCase, isWindowsOddName, slashed } from './names'
+import { foldCase, foldDrive, isWindowsOddName, slashed } from './names'
 import { sha256 } from './values'
 
 export type Watched = readonly (readonly [path: string, hash: string | null])[]
@@ -34,9 +34,8 @@ export const pathFrom = (root: string, dir: string, value: string): { path: stri
   let v = slashed(value, root)
   if (v === '') return 'unclear'
   const top = slashed(root).replace(/\/+$/, '')
-  const fold = (s: string) => (/^[A-Za-z]:/.test(top) ? foldCase(s) : s)
   let steps = dir ? dir.split('/') : []
-  if (top && fold(`${v}/`).startsWith(`${fold(top)}/`)) {
+  if (top && foldDrive(`${v}/`).startsWith(`${foldDrive(top)}/`)) {
     v = v.slice(top.length + 1)
     steps = []
   } else if (/^(?:\/|[A-Za-z]:)/.test(v)) return 'outside'

@@ -187,7 +187,7 @@ export async function draftFor($: EngineInterface, root: string, checks: readonl
     draft.checks = checks.map(c => ({ ...c, argv: [...c.argv], ...(c.count ? { count: { ...c.count } } : {}) }))
     let problem = setupProblem(root, draft.checks)
     const disk = openDisk($, root)
-    const found: Found = { watch: new Map(), files: new Map() }
+    const found: Found = { watch: new Set(), files: new Map() }
     for (const check of problem ? [] : draft.checks) {
       const bad = [check.dir, ...check.argv].map(showProblem).find(p => p !== null)
       if (bad) {

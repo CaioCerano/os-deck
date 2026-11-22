@@ -1289,3 +1289,11 @@ for (const isMade of [true, false])
     await task('1', 'completed')
     expect(w.p.claims[0]?.outside.length).toBe(1)
   })
+
+test('Z: a root is spelled as the disk has it, however setup was given it', async () => {
+  for (const given of ['c:/REPO', 'C:\\Repo', 'c:/repo']) {
+    const { w, $, ops } = world('C:/repo')
+    await proof.proofCommand($, ops, `setup ${given}`, true)
+    expect([given, w.p.draft?.root]).toEqual([given, 'C:/repo'])
+  }
+})

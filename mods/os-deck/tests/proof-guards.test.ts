@@ -125,7 +125,7 @@ test('suggestions are masked and few', () => {
 
 // ---------------------------------------------------------------- revision
 
-type Disk = { rows?: string[]; entries?: Record<string, [name: string, kind: string][]>; top?: number; where?: [number, string]; read?: Error; hash?: [number, string, boolean?]; root?: string }
+type Disk = { rows?: string[]; entries?: Record<string, [name: string, kind: string][]>; top?: number; said?: string; where?: [number, string]; read?: Error; hash?: [number, string, boolean?]; root?: string }
 const H = 'a'.repeat(40)
 const row = (path: string, mode = '100644') => `${mode} ${H} 0\t${path}\0`
 const revision = async (d: Disk = {}) => {
@@ -133,7 +133,7 @@ const revision = async (d: Disk = {}) => {
   const reads: string[] = []
   const out = (exitCode: number, stdout: string, cut = false) => ({ exitCode, stdout, stderr: '', isStdoutTruncated: cut })
   const run = async (argv: string[]) => {
-    if (argv.includes('--show-toplevel')) return out(d.top ?? 0, `${at}\n`)
+    if (argv.includes('--show-toplevel')) return out(d.top ?? 0, `${d.said ?? at}\n`)
     if (argv.includes('--git-path')) return out(...(d.where ?? [0, '.git/info/exclude\n']))
     if (argv.includes('--stage')) return out(0, (d.rows ?? [row('a')]).join(''))
     if (argv.includes('hash-object')) return d.hash ? out(...d.hash) : out(0, `${H}\n`)
@@ -157,6 +157,9 @@ const OK = /^[0-9a-f]{64}$/
 test('each guard of a revision', async () => {
   expect((await revision()).got).toMatch(OK)
   expect((await revision({ top: 128 })).got).toBe('not the top of a git repository')
+  // Z2: its worktree set on a twin one case apart, which a case-sensitive folder of Windows can hold.
+  expect((await revision({ said: 'C:/R' })).got).toBe('not the top of a git repository')
+  expect((await revision({ said: 'c:/r' })).got).toMatch(OK)
   expect((await revision({ read: new Error('ENOENT: no such file') })).got).toMatch(OK)
   expect((await revision({ where: [128, ''] })).got).toBe('its exclude file cannot be read')
   const unc = await revision({ where: [0, '//host/share/exclude\n'] })

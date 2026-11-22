@@ -156,11 +156,12 @@ test('the newest review of each claim', async () => {
   expect((await loadRecords(w.$, ROOT)).reviews).toEqual([review({ at: NOW - 100 })])
 })
 
-test('a root by either slash and, on Windows, either case', async () => {
+test('a root by either slash and either case of its drive, and no other', async () => {
   const w = world()
-  await saveAttempt(w.$, attempt({ root: 'C:\\Work\\Shop' }))
+  await saveAttempt(w.$, attempt({ root: 'C:\\work\\shop' }))
   const out = await loadRecords(w.$, 'c:/work/shop/')
   expect(out.attempts.map(a => a.root)).toEqual(['c:/work/shop/'])
+  expect(await loadRecords(w.$, 'C:/work/Shop')).toEqual(NONE)
   expect(await loadRecords(w.$, '/Repo')).toEqual(NONE)
 })
 

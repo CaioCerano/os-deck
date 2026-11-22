@@ -5,6 +5,12 @@ export const isWindowsOddName = (name: string) =>
 /** Case folded as NTFS folds what is written here: ASCII alone. Unicode's folding makes one name of two files. */
 export const foldCase = (text: string) => text.replace(/[A-Z]+/g, s => s.toLowerCase())
 
+/**
+ * The one fold of a path compared whole: its drive's letter. The rest is as the disk spells it, for a
+ * folder of Windows can be case-sensitive, and there `Repo` and `repo` are two.
+ */
+export const foldDrive = (path: string) => path.replace(/^[A-Za-z]:/, drive => drive.toLowerCase())
+
 const onWindows = (cwd: string) => /^[A-Za-z]:/.test(cwd)
 /** A path trimmed, `/d/x` on Windows drive D's, as the file tools read it. */
 const asToolsRead = (given: string, cwd: string) =>

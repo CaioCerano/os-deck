@@ -1,14 +1,14 @@
 // One check's reading as it goes: what it found to show and to watch, and how it ends.
 import type { ProofCheck } from '../../../types'
 import type { Draft } from '../model'
-import { keyOf, pathFrom } from '../watched'
+import { pathFrom } from '../watched'
 import type { Disk } from '../watched'
 
 /** What ends a check's reading: a reason it cannot be allowed. */
 export class Unshown extends Error {}
 
 export type Found = {
-  watch: Map<string, string>
+  watch: Set<string>
   files: Map<string, { path: string; body: string }>
 }
 export type Reading = {
@@ -31,7 +31,7 @@ export const manualOnly = (r: Reading, why: string) => {
   r.own.manual ??= why
 }
 export const watch = (r: Reading, path: string) => {
-  if (path && !r.found.watch.has(keyOf(path))) r.found.watch.set(keyOf(path), path)
+  if (path) r.found.watch.add(path)
 }
 
 /** A folder and those above it, up to the root. */

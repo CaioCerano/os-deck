@@ -4,7 +4,7 @@
 import type { ProofAttempt, ProofChange, ProofClaim } from '../../types'
 import { redact } from '../redact'
 import type { Lifecycle, OpenTask } from './model'
-import { slashed } from './names'
+import { foldDrive, slashed } from './names'
 import { changedPaths, isLocalPath, samePath } from './revision'
 
 const MAX_OPEN = 64
@@ -39,7 +39,7 @@ const UNKEPT = 'edits that could not all be kept'
 const spellPath = (path: string): string | null => {
   if (!isLocalPath(path)) return null
   const onWindows = /^[A-Za-z]:/.test(path)
-  const text = onWindows ? slashed(path).replace(/^./, drive => drive.toLowerCase()) : path
+  const text = foldDrive(slashed(path))
   const [top, ...parts] = text.split('/')
   const kept: string[] = []
   for (const part of parts) {

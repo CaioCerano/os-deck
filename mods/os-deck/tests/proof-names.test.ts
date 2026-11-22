@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { samePath } from '../hooks/proof/revision'
 import { draftFor } from '../hooks/proof/setup'
-import { changedOnDisk, keyOf } from '../hooks/proof/watched'
+import { changedOnDisk, keyOf, pathFrom } from '../hooks/proof/watched'
 
 // Names resolved as npm, cmd and NTFS resolve them, on a whole disk with the repository in a folder of it.
 
@@ -79,7 +79,8 @@ test('a program that is a link, as npm installs off Windows, is bound by where i
 
 test('A4: only ASCII case is folded', async () => {
   expect(samePath(`C:/wor${KELVIN}/repo`, 'C:/work/repo')).toBe(false)
-  expect(samePath('c:/WORK/repo', 'C:/work/Repo')).toBe(true)
+  expect(samePath('c:/WORK/repo', 'C:/work/Repo')).toBe(false)
+  expect(samePath('c:/work/Repo', 'C:/work/Repo')).toBe(true)
   expect(keyOf(`pac${KELVIN}age.json`)).not.toBe(keyOf('package.json'))
   expect((await draft({ [`${ROOT}/chec${KELVIN}.sh`]: 'exit 1' }, check(['bash', 'check.sh']))).problem).not.toBe(null)
   expect((await draft({ [`${ROOT}/package.json`]: pkg('jest'), [`${ROOT}/sub/pac${KELVIN}age.json`]: pkg('tsc --noEmit') }, check(['npm', 'run', 'lint'], 'sub'))).problem).not.toBe(null)
@@ -178,4 +179,15 @@ test('X1: what runs is named as the disk spells it, as a folder of Windows can b
   expect((await draft(script)).problem).not.toBe(null)
   expect((await draft({ [`${ROOT}/Package.json`]: pkg('tsc --noEmit') })).problem).not.toBe(null)
   expect((await draft(lone, check(['node', 'tools/check.js']))).problem).toBe(null)
+})
+
+test('Z1: an absolute path into a twin one case apart is outside, the drive’s letter aside', async () => {
+  for (const twin of ['C:/x/Repo/check.js', 'C:/X/repo/check.js', 'c:\\x\\REPO\\check.js']) expect([twin, pathFrom('C:/x/repo', '', twin)]).toEqual([twin, 'outside'])
+  expect(pathFrom('C:/x/repo', '', 'c:\\x\\repo\\check.js')).toEqual({ path: 'check.js' })
+})
+
+test('Z1: two spellings in one check are two paths to watch', async () => {
+  const held = { [`${ROOT}/a.json`]: '{}' }
+  expect((await draft(held, check(['tsc', '-p', 'a.json']))).problem).toBe(null)
+  expect((await draft(held, check(['tsc', '-p', 'a.json', '-p', 'A.json']))).problem).not.toBe(null)
 })

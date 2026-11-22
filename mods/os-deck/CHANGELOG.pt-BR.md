@@ -5,6 +5,7 @@
 ## os-deck 0.5.1
 
 - **Corrigido um Verified falso da 0.5.0.** Numa pasta do Windows que diferencia maiúsculas, uma edição numa pasta vizinha que só muda na caixa (`Repo` ao lado de `repo`) contava como dentro do repositório liberado. Agora ela fica fora, e a tarefa aparece como Inconclusive.
+- **Corrigidos mais dois do mesmo tipo:** um check com caminho completo para a pasta vizinha rodava o arquivo de lá, e um repositório com o worktree do git apontado para ela podia continuar Verified.
 - **Um caminho com outras maiúsculas nunca passa pelo mesmo arquivo** na leitura dos checks, e não só no arquivo executado e no `package.json`.
 
 ## os-deck 0.5.0

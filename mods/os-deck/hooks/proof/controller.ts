@@ -11,7 +11,7 @@ import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
 import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, waitTask, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofActions, ProofViewModel } from './model'
-import { editPath, placedPath, slashed } from './names'
+import { editPath, foldCase, placedPath, slashed } from './names'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
 import { cancelSignal } from './runner'
@@ -494,14 +494,23 @@ export async function proofSessionEnded(ops: ProofOps, reason: string): Promise<
 // ---------------------------------------------------------------- the command
 
 /** The top of the repository `from` is in, found by looking: before a press no git runs. */
+/**
+ * A root's one spelling, the disk's: every later comparison is exact. Only capitals are taken from
+ * there: where a link leads is another path, and git is asked of the one that was given.
+ */
+async function asOnDisk($: EngineInterface, dir: string, at: string): Promise<string> {
+  const real = (await $.fs.stat(dir, { resolve: true }).catch(() => null))?.realPath
+  const disk = real ? slashed(real).replace(/\/+$/, '') : at
+  return (foldCase(disk) === foldCase(at) ? disk : at).replace(/^[a-z]:/, drive => drive.toUpperCase())
+}
+
 async function topOf($: EngineInterface, from: string): Promise<string | null> {
   let at = slashed(from).replace(/\/+$/, '')
   for (let i = 0; i < 32 && at; i++) {
     const dir = /^[A-Za-z]:$/.test(at) ? `${at}/` : at
     if (!isLocalPath(dir)) return null
     const found = await $.fs.list(dir).catch(() => [])
-    // One spelling for a drive, or one repository is two.
-    if (found.some(x => x.name === '.git' && !x.isLink)) return at.replace(/^[a-z]:/, drive => drive.toUpperCase())
+    if (found.some(x => x.name === '.git' && !x.isLink)) return asOnDisk($, dir, at)
     const up = at.slice(0, at.lastIndexOf('/'))
     if (up === at) return null
     at = up
@@ -523,7 +532,7 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
     return `OS-Deck proof:\n${roots.map(r => `${redact(r.root)}  ${r.verdict.state}: ${redact(r.verdict.reason)}`).join('\n')}`
   }
   if (verb === 'history') {
-    const root = words.length > 0 ? rest : (p.allowed[0]?.grant.root ?? (await topOf($, await $.session.cwd())))
+    const root = words.length > 0 ? ((await topOf($, rest)) ?? rest) : (p.allowed[0]?.grant.root ?? (await topOf($, await $.session.cwd())))
     if (!root) return 'OS-Deck proof: no repository here.'
     const { attempts, claims, reviews } = await loadRecords($, root)
     const when = (at: number) => new Date(at).toLocaleString()
