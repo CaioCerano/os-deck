@@ -5,7 +5,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import { gitHashRaw, gitRead, namesIn } from '../safe-git'
-import { foldCase, isWindowsOddName } from './names'
+import { foldCase, isWindowsOddName, slashed } from './names'
 import { sha256 } from './values'
 
 export type Revision =
@@ -25,7 +25,7 @@ const isWindows = (path: string) => /^[A-Za-z]:/.test(path)
 
 /** One spelling of a directory: git's and the engine's differ in slashes and, on Windows, in case. */
 export const spellRoot = (path: string) => {
-  const s = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  const s = slashed(path).replace(/\/+$/, '')
   return isWindows(s) ? foldCase(s) : s
 }
 

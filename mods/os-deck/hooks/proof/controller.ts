@@ -11,7 +11,7 @@ import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
 import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, waitTask, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofActions, ProofViewModel } from './model'
-import { editPath, placedPath } from './names'
+import { editPath, placedPath, slashed } from './names'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
 import { cancelSignal } from './runner'
@@ -234,12 +234,15 @@ async function placeEdit($: EngineInterface, roots: readonly string[], named: st
 
 /** Where an edit landed, links followed, spelled from the allowed root it landed in. */
 async function landedAt($: EngineInterface, roots: readonly string[], path: string): Promise<string> {
-  const resolved = async (of: string) => (await $.fs.stat(of, { resolve: true }).catch(() => null))?.realPath?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null
+  const resolved = async (of: string) => {
+    const real = (await $.fs.stat(of, { resolve: true }).catch(() => null))?.realPath
+    return real ? slashed(real).replace(/\/+$/, '') : null
+  }
   let real = await resolved(path)
   if (!real) {
     // Not there yet: where the nearest folder that is leads is where it will land.
     // Off Windows a backslash is a letter of a name.
-    const steps = (/^[A-Za-z]:/.test(path) ? path.replace(/\\/g, '/') : path).split('/')
+    const steps = slashed(path).split('/')
     let at = steps.length - 1
     // Never a drive by itself, which is that drive's current folder.
     for (; at > 1; at--) {
@@ -491,7 +494,7 @@ export async function proofSessionEnded(ops: ProofOps, reason: string): Promise<
 
 /** The top of the repository `from` is in, found by looking: before a press no git runs. */
 async function topOf($: EngineInterface, from: string): Promise<string | null> {
-  let at = from.replace(/\\/g, '/').replace(/\/+$/, '')
+  let at = slashed(from).replace(/\/+$/, '')
   for (let i = 0; i < 32 && at; i++) {
     const dir = /^[A-Za-z]:$/.test(at) ? `${at}/` : at
     if (!isLocalPath(dir)) return null

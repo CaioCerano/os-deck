@@ -3,6 +3,7 @@
 //
 // A package script is understood only as plain words joined by ` && `: no quote, glob, variable, escape,
 // redirect or assignment, so sh and cmd cannot read it two ways.
+import { slashed } from '../names'
 import { ANY_EXT, aboveRoot, foldersAbove, joined } from '../watched'
 import { readBunConfig, readNpmConfig } from './config'
 import { BUN_TEST_FLAGS, MANIFESTS, STARTS_OTHERS, TOOLS, UNDERSTOOD } from './known'
@@ -160,7 +161,7 @@ export async function readCommand(r: Reading, words: readonly string[]): Promise
   if (!/^[a-z][a-z0-9-]*$/.test(word)) {
     // Under any other spelling a known program is another file. An unknown one, named whole, is only typed.
     if (isKnown || r.inScript) return refuse(r, 'a program is named by its plain name')
-    if (/^(?:\/|[A-Za-z]:)/.test(word) && !word.replace(/\\/g, '/').toLowerCase().startsWith(`${r.root.replace(/\\/g, '/').toLowerCase()}/`))
+    if (/^(?:\/|[A-Za-z]:)/.test(word) && !slashed(word).toLowerCase().startsWith(`${slashed(r.root).toLowerCase()}/`))
       return manualOnly(r, `what ${program} runs is not known`)
     return refuse(r, 'a program of the repository is not understood: name what runs it')
   }

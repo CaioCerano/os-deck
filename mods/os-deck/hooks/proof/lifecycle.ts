@@ -4,6 +4,7 @@
 import type { ProofAttempt, ProofChange, ProofClaim } from '../../types'
 import { redact } from '../redact'
 import type { Lifecycle, OpenTask } from './model'
+import { foldCase, slashed } from './names'
 import { changedPaths, isLocalPath, samePath } from './revision'
 
 const MAX_OPEN = 64
@@ -38,7 +39,7 @@ const UNKEPT = 'edits that could not all be kept'
 const spellPath = (path: string): string | null => {
   if (!isLocalPath(path)) return null
   const onWindows = /^[A-Za-z]:/.test(path)
-  const text = onWindows ? path.replace(/\\/g, '/').replace(/[A-Z]+/g, s => s.toLowerCase()) : path
+  const text = onWindows ? foldCase(slashed(path)) : path
   const [top, ...parts] = text.split('/')
   const kept: string[] = []
   for (const part of parts) {

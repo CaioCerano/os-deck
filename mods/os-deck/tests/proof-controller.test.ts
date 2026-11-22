@@ -1231,3 +1231,24 @@ test('C3: a setup folder with no drive, beside the repository, is not taken into
   expect(await proof.proofCommand($, ops, 'setup /beside', true)).toContain('not inside a git repository')
   expect(w.p.draft).toBe(null)
 })
+
+// ---------------------------------------------------------------- what the eighth attack got past
+
+for (const when of ['returned', 'in flight'] as const)
+  for (const how of ['named', 'through a link'] as const)
+    test(`V1: off Windows a folder beside, with a backslash in its name, ${how}, ${when}, is outside`, async () => {
+      // A plain fake, not the kit's: on a Windows host the kit respells what its fs is handed.
+      const { w, $, ops, allow, task } = world()
+      await allow()
+      await task('1', 'in_progress')
+      const beside = '/repo\\evil/real-work.md'
+      const path = how === 'named' ? beside : `${ROOT}/alias/real-work.md`
+      if (how !== 'named') w.links[path] = beside
+      const id = `backslash-${w.session}`
+      if (when === 'returned') await proof.proofToolRan($, ops, path, null)
+      else proof.proofEditStarted(id, { tool: 'Write', input: { file_path: path }, agentId: null })
+      w.files['a.ts'] = 'two'
+      await task('1', 'completed')
+      proof.proofEditSettled(id)
+      expect(w.p.claims[0]?.outside).toEqual([beside])
+    })

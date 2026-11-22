@@ -139,3 +139,13 @@ test('C3: on Windows no link is followed before a press: it could lead to a shar
   expect((await draftFor($, ROOT, [check()], 'detected')).problem).toContain('it is a link')
   expect(followed).toEqual([])
 })
+
+test('V1: off Windows a backslash is a letter of a name, never a separator', async () => {
+  expect(samePath('/w\\repo', '/w/repo')).toBe(false)
+  expect(samePath('C:\\w\\repo\\', 'C:/w/repo')).toBe(true)
+  // The top of the repository is /work/a\b, whose folders above are /work and /.
+  const top = '/work/a\\b'
+  const d = await draftFor(disk({ [`${top}/package.json`]: pkg('tsc --noEmit') }), top, [check()], 'detected')
+  expect(d.problem).toBe(null)
+  expect(d.watched.map(([path]) => path).filter(path => path.startsWith('/work/a|'))).toEqual([])
+})

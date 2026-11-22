@@ -3,7 +3,7 @@
 // What cannot be known is never "unchanged".
 import type { EngineInterface } from 'claude-code'
 
-import { foldCase, isWindowsOddName } from './names'
+import { foldCase, isWindowsOddName, slashed } from './names'
 import { sha256 } from './values'
 
 export type Watched = readonly (readonly [path: string, hash: string | null])[]
@@ -31,9 +31,9 @@ const isOddStep = (step: string) => step === '' || step === '.' || step === '..'
 
 /** A path as typed from a folder of the root, as one from the root. */
 export const pathFrom = (root: string, dir: string, value: string): { path: string } | 'outside' | 'unclear' => {
-  let v = value.replace(/\\/g, '/')
+  let v = slashed(value, root)
   if (v === '') return 'unclear'
-  const top = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  const top = slashed(root).replace(/\/+$/, '')
   const fold = (s: string) => (/^[A-Za-z]:/.test(top) ? foldCase(s) : s)
   let steps = dir ? dir.split('/') : []
   if (top && fold(`${v}/`).startsWith(`${fold(top)}/`)) {
@@ -72,7 +72,7 @@ const isWhole = (at: string) => /^(?:\/|[A-Za-z]:\/)/.test(at)
 /** The folders above a root, up to the drive's. */
 export const foldersAbove = (root: string): string[] => {
   const out: string[] = []
-  let at = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  let at = slashed(root).replace(/\/+$/, '')
   while (at.includes('/')) {
     at = at.slice(0, at.lastIndexOf('/'))
     out.push(at)

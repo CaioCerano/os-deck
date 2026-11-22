@@ -27,7 +27,7 @@ export const editPath = (named: string, cwd: string): string | null => {
 export const placedPath = (given: string, cwd: string): string | null => {
   const path = asToolsRead(given, cwd)
   if (path === '' || path.startsWith('~') || /^[\\/]{2}/.test(path)) return null
-  const base = cwd.replace(/[\\/]+$/, '')
+  const base = slashed(cwd).replace(/\/+$/, '')
   if (!onWindows(cwd)) return path.startsWith('/') ? path : `${base}/${path}`
   const rest = /^[A-Za-z]:[\\/]/.test(path) ? path.slice(2) : path
   if (rest.includes(':')) return null
@@ -35,3 +35,6 @@ export const placedPath = (given: string, cwd: string): string | null => {
   // Windows takes a leading slash to the root of the drive it is on.
   return /^[\\/]/.test(path) ? `${cwd.slice(0, 2)}${path}` : `${base}/${path}`
 }
+
+/** Slashes in place of backslashes in a drive's path, which `system` says it is. Off Windows a backslash is a letter. */
+export const slashed = (path: string, system = path) => (onWindows(system) ? path.replace(/\\/g, '/') : path)
