@@ -500,7 +500,7 @@ export const taskDetail = (d: ProofDraw, vm: ProofViewModel, task: TaskView, ind
     for (const path of task.reviewWorthy.slice(0, MAX_LISTED)) s.exact(shown(path), '  ')
     if (task.reviewWorthy.length > MAX_LISTED) s.say(`and ${task.reviewWorthy.length - MAX_LISTED} more`, { dim: true })
   }
-  s.say('not covered: ignored files, dependencies, shell writes outside allowed repositories', { dim: true })
+  s.say('not covered: ignored files, dependencies, shell and MCP writes outside allowed repositories', { dim: true })
   if (canReview) {
     s.say('mark reviewed covers:', { dim: true })
     for (const { root, revision } of drawn) s.exact(`${shown(root)} @ ${shortRevision(revision)}`, '  ')

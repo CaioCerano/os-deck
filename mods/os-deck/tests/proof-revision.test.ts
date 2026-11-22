@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { changedPaths, oddPath, readRevision } from '../hooks/proof/revision'
 
-type World = { index?: string[]; others?: string[]; deleted?: string[]; top?: string; links?: string[]; absent?: string[]; truncated?: boolean; hashes?: string; exclude?: Error }
+type World = { index?: string[]; others?: string[]; deleted?: string[]; top?: string; links?: string[]; absent?: string[]; truncated?: boolean; hashes?: string; exclude?: Error; onDisk?: string[] }
 const row = (path: string, mode = '100644', stage = '0') => `${mode} ${'a'.repeat(40)} ${stage}\t${path}`
 const nul = (xs: string[]) => xs.map(x => `${x}\0`).join('')
 
@@ -24,7 +24,7 @@ const world = (w: World = {}) => {
     if (argv.includes('--others')) return ok(nul(w.others ?? []))
     if (argv.includes('--deleted')) return ok(nul(w.deleted ?? []))
     if (argv.includes('config')) return { ...ok(''), exitCode: 1 }
-    if (argv.includes('hash-object')) return ok(w.hashes ?? paths.filter(p => !w.absent?.includes(p)).map(() => `${'b'.repeat(40)}\n`).join(''))
+    if (argv.includes('hash-object')) return ok(w.hashes ?? (init?.stdin ?? '').split('\n').filter(Boolean).map(() => `${'b'.repeat(40)}\n`).join(''))
     return ok(`${'c'.repeat(40)}\n`)
   }
   const read = async () => {
@@ -34,7 +34,7 @@ const world = (w: World = {}) => {
   const list = async (path: string) => {
     const dir = path.replace(/\\/g, '/').replace(/^.*?\/repo\/?/, '')
     const found = new Map<string, { name: string; kind: string; isLink: boolean }>()
-    for (const p of paths) {
+    for (const p of [...paths, ...(w.onDisk ?? [])]) {
       if (w.absent?.includes(p) || (dir && !p.startsWith(`${dir}/`))) continue
       const [name = '', ...rest] = (dir ? p.slice(dir.length + 1) : p).split('/')
       const full = dir ? `${dir}/${name}` : name
@@ -108,4 +108,20 @@ test('paths that leave the repository are refused', () => {
 
 test('changes list edits, additions and deletions', () => {
   expect(changedPaths(new Map([['a', '1'], ['b', '1'], ['c', '1']]), new Map([['a', '1'], ['b', '2'], ['d', '1']]))).toEqual([{ path: 'b', hash: '2' }, { path: 'c', hash: null }, { path: 'd', hash: '1' }])
+})
+
+test('an ignore file that hides itself in a listed folder changes the revision', async () => {
+  const before = await readRevision(world().$, '/repo')
+  // Git lists neither it nor what it hides.
+  const { $ } = world({ onDisk: ['src/.gitignore', 'src/new.test.ts'] })
+  const after = await readRevision($, '/repo')
+  if (!before.ok || !after.ok) throw new Error('no revision')
+  expect([...after.hashes.keys()]).toContain('src/.gitignore')
+  expect(after.revision).not.toBe(before.revision)
+})
+
+test('an ignore file that is a link gives no revision', async () => {
+  const { $ } = world({ onDisk: ['src/.gitignore'], links: ['src/.gitignore'] })
+  const r = await readRevision($, '/repo')
+  expect(r.ok ? 'ok' : r.reason).toContain('a link')
 })

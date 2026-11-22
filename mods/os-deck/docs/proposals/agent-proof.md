@@ -59,7 +59,7 @@ register.tsx          wiring only
 
 The root must equal `git rev-parse --show-toplevel`. The revision is a SHA-256 over:
 
-- the path, raw-byte hash (`hash-object --no-filters --stdin-paths`) and executable bit of each tracked or untracked non-ignored file that exists;
+- the path, raw-byte hash (`hash-object --no-filters --stdin-paths`) and executable bit (as git's index records it, not the disk) of each tracked or untracked non-ignored file that exists, and of every `.gitignore` in their folders, which can ignore itself;
 - the contents of `.git/info/exclude`.
 
 It is unavailable, never partial, for: conflicts, links, submodules, untracked nested repositories, names git would read differently, failed or truncated reads. Setup reports these before approval.
