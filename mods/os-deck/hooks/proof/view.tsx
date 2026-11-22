@@ -8,7 +8,8 @@ import type { Colors } from '../core'
 import { redact } from '../redact'
 import { outcomeOf } from './checks'
 import type { Draft, ProofActions, ProofViewModel, RootView, TaskView } from './model'
-import { UNSHOWN, hasSecret, quoted, unshowable } from './showable'
+import { PASS_MARKS, UNSHOWN, hasSecret, quoted, unshowable } from './showable'
+import { isCount } from './values'
 import type { ProofState } from './verdict'
 
 export type ProofDraw = {
@@ -27,8 +28,6 @@ export type Mark = Section & { width: number }
 
 // ---------------------------------------------------------------- text
 
-// Marks that read as verified are ours alone to draw.
-const PASS_MARKS = /[✓✔✅☑√🗸🟢🟩💚]/gu
 const BARE_ARG = /^[A-Za-z0-9À-ÖØ-öø-ÿ_@%+=:,./\\~-]+$/u
 // The engine refuses a whole pane for one of these.
 const UNDRAWABLE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu
@@ -47,8 +46,6 @@ const shown = (raw: string): string => {
   return text === '' || UNSHOWN.test(text) ? quoted(text) : text
 }
 
-/** A plan's own words with the marks that are ours alone to draw taken out. */
-export const withoutMarks = (text: string): string => text.replace(PASS_MARKS, '*')
 const shownArg = (arg: string): string => (BARE_ARG.test(arg) ? arg : quoted(arg))
 
 // Counted wide where unsure: an early wrap loses nothing, a late one is cut by the terminal.
@@ -573,7 +570,6 @@ const SOURCE: Readonly<Record<Draft['source'], string>> = {
   typed: 'as you typed it',
 }
 
-const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
 
 /** What would judge the tests, as a press binds it: accepted counts, none yet, or counts that are no counts. */
 const baselineIn = ({ minPassed, maxSkipped }: ProofCountRule): { least: number; most: number } | 'none' | 'unreadable' => {

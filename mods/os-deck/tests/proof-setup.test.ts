@@ -2,12 +2,11 @@ import type { EngineInterface } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
 import { checkProblem, grantFrom } from '../hooks/proof/grant'
-import type { Draft, Setup } from '../hooks/proof/model'
+import type { Draft } from '../hooks/proof/model'
 import { detectChecks, draftFor, parseTypedCheck } from '../hooks/proof/setup'
 import type { ProofCheck } from '../types'
 
-// The contract, held by the type checker.
-const setup: Setup = { detectChecks, parseTypedCheck, draftFor }
+const setup = { detectChecks, parseTypedCheck, draftFor }
 
 const ROOT = '/repo'
 const chr = (code: number) => String.fromCodePoint(code)

@@ -3,6 +3,11 @@
 import { redact } from '../redact'
 import type { Draft } from './model'
 
+// Marks that read as verified are ours alone to draw.
+export const PASS_MARKS = /[✓✔✅☑√🗸🟢🟩💚]/gu
+/** Another's words with those marks taken out. */
+export const withoutMarks = (text: string): string => text.replace(PASS_MARKS, '*')
+
 // A shown character is one cell and can be told from every other.
 export const UNSHOWN = /[^ -~À-ÖØ-öø-ÿ]/u
 const ESCAPED: Readonly<Record<string, string>> = { '\\': '\\\\', '"': '\\"', '\n': '\\n', '\r': '\\r', '\t': '\\t' }

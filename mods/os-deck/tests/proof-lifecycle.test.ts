@@ -75,14 +75,14 @@ const world = (allowed: readonly string[] = [APP], firstSession = 'S1') => {
     },
     complete: (taskId: string, at: number = w.tick()): ProofClaim => {
       const { found, unread } = w.readAll()
-      const done = completeTask(w.t, frozen({ session: w.session, taskId, subject: `task ${taskId}`, agentId: null, at, end: found, unread, roots: w.roots(), claims: w.claims }))
+      const done = completeTask(w.t, frozen({ session: w.session, taskId, subject: `task ${taskId}`, agentId: null, helpers: [], at, end: found, unread, roots: w.roots(), claims: w.claims }))
       w.t = frozen(done.tracking)
       w.claims = frozen([...withdrawClaims(w.claims, w.session, taskId), done.claim])
       return done.claim
     },
     drop: (taskId: string): void => void (w.t = frozen(dropTask(w.t, taskId))),
     reopen: (taskId: string): void => void (w.claims = frozen(withdrawClaims(w.claims, w.session, taskId))),
-    note: (path: string): void => void (w.t = frozen(noteEdit(w.t, path))),
+    note: (path: string): void => void (w.t = frozen(noteEdit(w.t, path, ''))),
     /** A write nothing observed, as a shell's is. */
     write: (root: string, path: string, hash: string | null): void => {
       const files = w.files.get(root) as Map<string, string>
@@ -187,7 +187,7 @@ test("the agent's words are redacted, bounded, and never evidence", () => {
   w.describe('A', `all tests pass, verified, GH_TOKEN=ghp_${'0'.repeat(30)} ${'x '.repeat(5000)}`)
   w.start('A')
   const { found, unread } = w.readAll()
-  const { claim } = completeTask(w.t, { session: 'S1', taskId: 'A', subject: `done password=hunter2 ${'s '.repeat(500)}`, agentId: 'a1', at: w.tick(), end: found, unread, roots: w.roots(), claims: [] })
+  const { claim } = completeTask(w.t, { session: 'S1', taskId: 'A', subject: `done password=hunter2 ${'s '.repeat(500)}`, agentId: 'a1', helpers: [], at: w.tick(), end: found, unread, roots: w.roots(), claims: [] })
   expect(claim.description).toContain('all tests pass')
   expect(claim.description).not.toContain('ghp_0')
   expect(claim.subject).not.toContain('hunter2')
@@ -481,7 +481,7 @@ test('started again while open keeps the first baseline and all seen since', () 
   const first = w.t.open[0]
   w.edit(APP, 'a.ts', 'a1')
   w.start('A')
-  expect(w.t.open).toEqual([first])
+  expect(w.t.open).toEqual([{ ...first, editors: [''] }])
   expect(w.complete('A').changes[0]?.paths).toEqual([{ path: 'a.ts', hash: 'a1' }])
 
   const seen = world()
@@ -552,7 +552,7 @@ test('a root missing from one reading, or both read and unread, never verifies',
   ]
   for (const [from, unreadThen, to, unreadNow, roots] of cases) {
     const t = startTask(EMPTY, { taskId: 'A', at: 1, start: from, unread: unreadThen })
-    expect(completeTask(t, { session: 'S', taskId: 'A', subject: '', agentId: null, at: 2, end: to, unread: unreadNow, roots, claims: [] }).claim.hasBaseline).toBe(false)
+    expect(completeTask(t, { session: 'S', taskId: 'A', subject: '', agentId: null, helpers: [], at: 2, end: to, unread: unreadNow, roots, claims: [] }).claim.hasBaseline).toBe(false)
   }
 })
 
@@ -593,8 +593,8 @@ test('an allowed root left alone is neither listed nor run', () => {
 
 const afterEdit = (roots: string[], path: string) => {
   const start = roots.map(root => ({ root, revision: 'r0', files: [['a.ts', 'a0']] as [string, string][] }))
-  const t = noteEdit(startTask(EMPTY, { taskId: 'A', at: 1, start, unread: [] }), path)
-  return completeTask(t, { session: 'S', taskId: 'A', subject: '', agentId: null, at: 2, end: start, unread: [], roots, claims: [] }).claim.outside
+  const t = noteEdit(startTask(EMPTY, { taskId: 'A', at: 1, start, unread: [] }), path, '')
+  return completeTask(t, { session: 'S', taskId: 'A', subject: '', agentId: null, helpers: [], at: 2, end: start, unread: [], roots, claims: [] }).claim.outside
 }
 
 test('paths inside an allowed root, however Windows spells them', () => {
@@ -960,7 +960,7 @@ test('past the kept baseline files, the task has none', () => {
   expect(t.open[6]?.unread).toEqual([APP])
   expect(t.open[6]?.overlap).toHaveLength(7)
   const end = [{ root: APP, revision: 'r1', files: [...files, ['new', 'h'] as [string, string]] }]
-  expect(completeTask(t, { session: 'S', taskId: 'T6', subject: '', agentId: null, at: 9, end, unread: [], roots: [APP], claims: [] }).claim.hasBaseline).toBe(false)
+  expect(completeTask(t, { session: 'S', taskId: 'T6', subject: '', agentId: null, helpers: [], at: 9, end, unread: [], roots: [APP], claims: [] }).claim.hasBaseline).toBe(false)
 })
 
 test('past the kept changed paths, the claim cannot verify but is still run', () => {

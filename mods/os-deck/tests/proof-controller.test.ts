@@ -117,7 +117,14 @@ const world = (ROOT = '/repo') => {
   }
   const endTurn = async (reason = 'answer') => {
     await proof.proofTurnEnded($, ops, { isMain: true, reason })
-    await pause(80)
+    // Until it does nothing more, rather than for a time a busy machine can outlast.
+    let before = ''
+    for (let quiet = 0, i = 0; quiet < 6 && i < 120; i++) {
+      await pause(25)
+      const now = `${w.git} ${w.spawned.length} ${w.p.attempts.map(x => x.checks.length)}`
+      quiet = now === before ? quiet + 1 : 0
+      before = now
+    }
   }
   const allow = async (auto = true) => {
     await proof.proofCommand($, ops, 'setup', true)
@@ -640,4 +647,17 @@ test('review 5: a baseline is of the allowance it was drawn for', async () => {
   }
   await proof.pressBaseline($, replaced, ROOT, b.attemptId, b.checkId, b.passed, b.skipped)
   expect(w.p.allowed[0]?.grant.checks[0]?.count?.minPassed).toBe(null)
+})
+
+test('review 11: what was claimed and reviewed is in the history shown', async () => {
+  const { w, $, ops, allow, work, view } = world()
+  await allow()
+  await work()
+  const t = (await view()).tasks[0]!
+  await proof.pressReview($, ops, t.claim.id, t.drawn)
+  await pause(40)
+  const said = await proof.proofCommand($, ops, 'history', true)
+  expect(said).toContain('history, not evidence')
+  expect(said).toContain('claimed "task 1" · reviewed')
+  expect(w.spawned).toEqual([])
 })

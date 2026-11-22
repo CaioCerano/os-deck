@@ -4,17 +4,19 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { Plan, ProofAttempt, ProofCheck } from '../../types'
+import { EDIT_TOOLS, shorten } from '../core'
 import { redact } from '../redact'
 import { runAttempt } from './attempt'
 import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
-import { completeTask, describeTask, dropTask, isClaimOf, noteEdit, rootsToRun, startTask, withEditors, withdrawClaims } from './lifecycle'
-import type { Manifest, ProofViewModel } from './model'
+import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, withdrawClaims } from './lifecycle'
+import type { Manifest, ProofActions, ProofViewModel } from './model'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
 import { cancelSignal } from './runner'
 import type { CancelSignal } from './runner'
 import { detectChecks, draftFor, parseTypedCheck } from './setup'
+import { withoutMarks } from './showable'
 import { EMPTY_PROOF, EMPTY_WORK } from './state'
 import type { ProofOps } from './state'
 import { changedOnDisk } from './watched'
@@ -27,7 +29,6 @@ const MAX_KEPT = 100
 // Each automatic run uses up a claim, counted among the attempts kept: so as many of both are kept.
 const MAX_CLAIMS = 1000
 const MAX_ATTEMPTS = MAX_CLAIMS
-const MAX_EDITORS = 16
 
 // This load's own: what is running, its output, and the timers.
 const live = new Map<string, { id: string; signal: CancelSignal }>()
@@ -133,7 +134,7 @@ function refreshSoon($: EngineInterface, ops: ProofOps) {
 
 // ---------------------------------------------------------------- task events
 
-export type TaskChange = { before: Plan; after: Plan; taskId: string; agentId: string | null; description: string | null; created?: boolean }
+type TaskChange = { before: Plan; after: Plan; taskId: string; agentId: string | null; description: string | null; created?: boolean }
 
 /**
  * A task as a tool call changed it. The call waits only for a content read, and not for long: an edit
@@ -155,9 +156,7 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     const was = x.before.tasks.find(t => t.id === x.taskId)
     const is = x.after.tasks.find(t => t.id === x.taskId)
     const held = p.claims.filter(c => c.session === session && c.taskId === x.taskId && !c.withdrawn)
-    // An id is not a task: deleted, reopened, renamed or used again, what was claimed is claimed no
-    // longer, whatever the plan remembered of it.
-    if (held.length > 0 && (x.created || !is || is.status !== 'completed' || held.some(c => !isClaimOf(c, is)))) {
+    if (endsClaims(held, { task: is, created: x.created === true })) {
       await ops.setProof(s => ({ ...s, claims: withdrawClaims(s.claims, session, x.taskId) }))
       for (const c of held) for (const root of new Set(c.changes.map(ch => ch.root))) void saveClaim($, root, { ...c, withdrawn: true })
     }
@@ -180,9 +179,7 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     }
     const claims = (await ops.proof()).claims
     const { tracking } = await ops.work()
-    const editors = tracking.open.find(o => o.taskId === x.taskId)?.editors ?? []
-    const completed = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, agentId: x.agentId, at, end: manifests, unread, roots, claims })
-    const done = { ...completed, claim: withEditors(completed.claim, editors, is.agents) }
+    const done = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, agentId: x.agentId, helpers: is.agents, at, end: manifests, unread, roots, claims })
     await ops.setWork(w => ({ ...w, tracking: done.tracking }))
     // The new completion replaces what an earlier one claimed.
     await ops.setProof(s => (s.session === session ? { ...s, claims: [...withdrawClaims(s.claims, session, x.taskId), done.claim].slice(-MAX_CLAIMS) } : s))
@@ -216,17 +213,37 @@ export async function proofToolRan($: EngineInterface, ops: ProofOps, editedPath
       if ((await ops.work()).tracking.open.length === 0) return
       const named = isLocalPath(editedPath) ? editedPath : `${await $.session.cwd()}/${editedPath}`
       const path = await landedAt($, (await ops.proof()).allowed.map(a => a.grant.root), named)
-      await ops.setWork(w => {
-        const tracking = noteEdit(w.tracking, path)
-        const open = tracking.open.map(o => {
-          const editors = o.editors ?? []
-          return editors.includes(editor) || editors.length >= MAX_EDITORS ? o : { ...o, editors: [...editors, editor] }
-        })
-        return { ...w, tracking: { ...tracking, open } }
-      })
+      await ops.setWork(w => ({ ...w, tracking: noteEdit(w.tracking, path, editor) }))
     }).catch(() => undefined)
   }
   refreshSoon($, ops)
+}
+
+/** A task tool's call, done: which task it was of, and how it changed. */
+export async function proofTaskTool(
+  $: EngineInterface,
+  ops: ProofOps,
+  x: { tool: string; input: Record<string, unknown>; result: unknown; before: Plan; after: Plan; agentId: string | null },
+): Promise<void> {
+  const created = x.tool === 'TaskCreate'
+  // The result's id, not the one new to the plan: an id used again is new to neither.
+  const id = created ? (x.result as { task?: { id?: unknown } } | null)?.task?.id : x.input.taskId
+  if (typeof id !== 'string') return
+  const description = typeof x.input.description === 'string' ? x.input.description : null
+  await proofTaskChanged($, ops, { before: x.before, after: x.after, taskId: id, agentId: x.agentId, description, created })
+}
+
+/** Any other tool's call, done: whether it can have changed the content, and the file it named. */
+export async function proofToolDone(
+  $: EngineInterface,
+  ops: ProofOps,
+  x: { tool: string; input: Record<string, unknown>; hasFailed: boolean; agentId: string | null },
+): Promise<void> {
+  const isEdit = EDIT_TOOLS.has(x.tool)
+  // A failed shell call can have changed files too, and an MCP tool writes as it likes.
+  if (!isEdit && x.tool !== 'Bash' && x.tool !== 'PowerShell' && !x.tool.startsWith('mcp__')) return
+  const path = isEdit && !x.hasFailed ? (x.input.file_path ?? x.input.notebook_path) : null
+  await proofToolRan($, ops, typeof path === 'string' ? path : null, x.agentId)
 }
 
 // ---------------------------------------------------------------- runs
@@ -322,10 +339,7 @@ async function runOwed($: EngineInterface, ops: ProofOps): Promise<void> {
   await refreshProof($, ops)
   if (!(await ops.work()).turnEnded) return
   const p = await ops.proof()
-  // With no baseline what a task changed is not known, so it is owed a run of every root.
-  const claims = p.claims.map(c =>
-    c.hasBaseline ? c : { ...c, changes: p.allowed.map(a => ({ root: a.grant.root, paths: [{ path: '', hash: null }], overlap: [] })) },
-  )
+  const claims = asOwing(p.claims, p.allowed.map(a => a.grant.root))
   const roots = rootsToRun({
     session,
     grants: p.allowed.map(a => a.grant),
@@ -421,10 +435,18 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
   if (verb === 'history') {
     const root = words.length > 0 ? rest : (p.allowed[0]?.grant.root ?? (await topOf($, await $.session.cwd())))
     if (!root) return 'OS-Deck proof: no repository here.'
-    const { attempts } = await loadRecords($, root)
-    if (attempts.length === 0) return 'OS-Deck proof: no saved runs for this repository.'
-    const lines = attempts.slice(-10).reverse().map(a => `${new Date(a.startedAt).toLocaleString()}  ${pastLabel(a)}  ${a.checks.map(c => c.id).join(', ')}`)
-    return `OS-Deck proof, saved runs (history, not evidence):\n${lines.join('\n')}`
+    const { attempts, claims, reviews } = await loadRecords($, root)
+    const when = (at: number) => new Date(at).toLocaleString()
+    const reviewed = new Set(reviews.map(r => r.claim))
+    const lines = [
+      ...attempts.slice(-10).reverse().map(a => `${when(a.startedAt)}  ${pastLabel(a)}  ${a.checks.map(c => c.id).join(', ')}`),
+      ...claims.slice(-10).reverse().map(c => {
+        const since = c.withdrawn ? ' · withdrawn' : reviewed.has(c.id) ? ' · reviewed' : ''
+        return `${when(c.at)}  claimed "${withoutMarks(c.subject)}"${since}`
+      }),
+    ]
+    if (lines.length === 0) return 'OS-Deck proof: nothing saved for this repository.'
+    return `OS-Deck proof, saved runs and claims (history, not evidence):\n${lines.join('\n')}`
   }
   if (verb !== 'setup' && verb !== 'check' && verb !== 'run') return USAGE
   // The origin of a typed command is a clicked link's too: so this only shows and drafts, whoever sent it.
@@ -568,4 +590,20 @@ export async function pressShowLog(ops: ProofOps, root: string, checkId: string 
   const isSame = shownLog?.root === root && shownLog.checkId === checkId
   shownLog = checkId === null || isSame ? null : { root, checkId, text: tails.get(`${checkId}\n${root}`) ?? 'no output kept' }
   await ops.setWork(w => ({ ...w }))
+}
+
+/** The dock's presses. Each carries what was drawn; the functions above hold it against what is. */
+export function proofActions($: EngineInterface, ops: ProofOps): ProofActions {
+  const done = (work: Promise<unknown>) => work.catch(err => $.ui.toast(`OS-Deck proof: ${shorten(redact(String(err)), 120)}`))
+  return {
+    toggleClaim: id => done(ops.setProof(p => ({ ...p, openClaim: p.openClaim === id ? null : id }))),
+    allow: (root, digest, auto) => done(pressAllow($, ops, root, digest, auto)),
+    discardDraft: () => done(ops.setProof(p => ({ ...p, draft: null }))),
+    verify: root => done(pressVerify($, ops, root)),
+    cancel: root => done(pressCancel(root)),
+    acceptBaseline: (root, attempt, check, passed, skipped) => done(pressBaseline($, ops, root, attempt, check, passed, skipped)),
+    resume: root => done(pressResume($, ops, root)),
+    review: (claim, drawn) => done(pressReview($, ops, claim, drawn)),
+    showLog: (root, check) => done(pressShowLog(ops, root, check)),
+  }
 }

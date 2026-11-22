@@ -4,6 +4,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import { isWindowsOddName } from './names'
+import { sha256 } from './values'
 
 export type Watched = readonly (readonly [path: string, hash: string | null])[]
 
@@ -118,8 +119,7 @@ export function openDisk($: EngineInterface, root: string): Disk {
       const { base64 } = await $.fs.read(`${root}/${at}`, { as: 'bytes', length: MAX_BYTES + 1 })
       const bytes = Uint8Array.from(atob(base64), ch => ch.charCodeAt(0))
       if (bytes.length > MAX_BYTES) return problem('it is too large to read whole')
-      const digest = await crypto.subtle.digest('SHA-256', bytes)
-      const hash = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+      const hash = await sha256(bytes)
       return { kind: 'file', bytes, hash, stamp: `${entry.size}:${entry.mtimeMs}` }
     } catch {
       return problem('it cannot be read')

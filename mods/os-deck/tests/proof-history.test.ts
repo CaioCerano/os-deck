@@ -5,13 +5,12 @@ import { dirKey } from '../hooks/core'
 import { pruneHistory } from '../hooks/history'
 import { digestOf, mayRun } from '../hooks/proof/grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from '../hooks/proof/history'
-import type { History } from '../hooks/proof/model'
 import { rootVerdict, taskVerdict } from '../hooks/proof/verdict'
 import type { RootNow, Verdict } from '../hooks/proof/verdict'
 import type { ProofAttempt, ProofCheck, ProofClaim, ProofGrant, ProofResult, ProofReview } from '../types'
 
 // The contract, held by the type checker.
-const history: History = { saveAttempt, saveClaim, saveReview, saveChecks, loadRecords }
+const history = { saveAttempt, saveClaim, saveReview, saveChecks, loadRecords }
 
 const ROOT = '/repo'
 const NOW = 1_800_000_000_000

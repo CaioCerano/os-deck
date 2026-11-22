@@ -119,32 +119,11 @@ import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './githu
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
 import { flushHistory, historyReport, inTurn, loadHistory, pruneHistory, recordDay, sessionKeysIn } from './history'
 import { gitRead, readRepoState } from './safe-git'
-import {
-  liveRuns,
-  logShown,
-  pressAllow,
-  pressBaseline,
-  pressCancel,
-  pressResume,
-  pressReview,
-  pressShowLog,
-  pressVerify,
-  proofCommand,
-  proofSessionEnded,
-  proofSessionStarted,
-  proofTaskChanged,
-  proofToolRan,
-  proofTurnEnded,
-  proofTurnStarted,
-} from './proof/controller'
-import type { ProofActions } from './proof/model'
-import { presentProof } from './proof/present'
-import { logTail, proofNotices, proofSummary, setupDraft, taskDetail, taskMark, withoutMarks } from './proof/view'
-import { isClaimOf } from './proof/lifecycle'
+import { proofActions, proofCommand, proofSessionEnded, proofSessionStarted, proofTaskTool, proofToolDone, proofTurnEnded, proofTurnStarted } from './proof/controller'
+import { isProofOn, proofDock, unposed } from './proof/dock'
 import type { Section } from './proof/view'
 import { EMPTY_PROOF, EMPTY_WORK, proofOf, workOf } from './proof/state'
 import type { ProofOps } from './proof/state'
-
 import type { Config, Panel } from './core'
 
 const PANE = 'flightdeck'
@@ -670,7 +649,6 @@ async function autoEpic($: EngineInterface, isOn: boolean, siteOpt: string | nul
   }
 }
 
-const MIN_ALLOW_COLUMNS = 40
 const PLAN_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite', 'ExitPlanMode'])
 
 /**
@@ -852,23 +830,6 @@ function proofOps($: EngineInterface): ProofOps {
     setProof: async fn => void (await update($, proof, x => fn(proofOf(x)))),
     work: async () => workOf(await read($, proofWork)),
     setWork: async fn => void (await update($, proofWork, x => fn(workOf(x)))),
-  }
-}
-
-/** Agent Proof's presses. Each carries what was drawn; the controller holds it against what is. */
-function proofActions($: EngineInterface): ProofActions {
-  const ops = proofOps($)
-  const done = (work: Promise<unknown>) => work.catch(err => $.ui.toast(`OS-Deck proof: ${shorten(redact(String(err)), 120)}`))
-  return {
-    toggleClaim: id => done(ops.setProof(p => ({ ...p, openClaim: p.openClaim === id ? null : id }))),
-    allow: (root, digest, auto) => done(pressAllow($, ops, root, digest, auto)),
-    discardDraft: () => done(ops.setProof(p => ({ ...p, draft: null }))),
-    verify: root => done(pressVerify($, ops, root)),
-    cancel: root => done(pressCancel(root)),
-    acceptBaseline: (root, attempt, check, passed, skipped) => done(pressBaseline($, ops, root, attempt, check, passed, skipped)),
-    resume: root => done(pressResume($, ops, root)),
-    review: (claim, drawn) => done(pressReview($, ops, claim, drawn)),
-    showLog: (root, check) => done(pressShowLog(ops, root, check)),
   }
 }
 
@@ -1297,14 +1258,8 @@ export const register: Register = (on, options) => {
           const input = e as unknown as Record<string, unknown>
           const now = await $.clock.now()
           const { before, after } = await notePlan($, e.tool, input, ran.result, now)
-          if (e.tool === 'TaskUpdate' || e.tool === 'TaskCreate') {
-            // The result's id, not the one new to the plan: an id used again is new to neither.
-            const created = e.tool === 'TaskCreate'
-            const made = created ? (ran.result as { task?: { id?: unknown } } | null)?.task?.id : input.taskId
-            const description = typeof input.description === 'string' ? input.description : null
-            if (typeof made === 'string')
-              await quietly($, 'proof task', () => proofTaskChanged($, proofOps($), { before, after, taskId: made, agentId: e.agentId ?? null, description, created }))
-          }
+          if (e.tool === 'TaskUpdate' || e.tool === 'TaskCreate')
+            await quietly($, 'proof task', () => proofTaskTool($, proofOps($), { tool: e.tool, input, result: ran.result, before, after, agentId: e.agentId ?? null }))
           if (e.tool === 'TaskUpdate') await afterPlanChange($, before, after, input, e.agentId, now).catch(err => say($, 'flightdeck', `plan update failed: ${String(err)}`, 'error'))
           if (e.tool === 'TaskUpdate' && input.status === 'completed') void recordDay($, now, { tasks: 1 })
         }
@@ -1316,13 +1271,8 @@ export const register: Register = (on, options) => {
         return
       }
       const hasFailed = didRun && ran.isError === true
-      if (didRun) {
-        const input = e as unknown as { file_path?: unknown; notebook_path?: unknown }
-        const path = EDIT_TOOLS.has(e.tool) ? (input.file_path ?? input.notebook_path) : null
-        // A failed shell call can have changed files too, and an MCP tool writes as it likes.
-        if (EDIT_TOOLS.has(e.tool) || e.tool === 'Bash' || e.tool === 'PowerShell' || String(e.tool).startsWith('mcp__'))
-          await quietly($, 'proof tool', () => proofToolRan($, proofOps($), typeof path === 'string' && !hasFailed ? path : null, e.agentId ?? null))
-      }
+      if (didRun)
+        await quietly($, 'proof tool', () => proofToolDone($, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, hasFailed, agentId: e.agentId ?? null }))
       const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
       if (didRun && (isEdit || e.tool === 'Bash' || e.tool === 'PowerShell')) void pokeGit($, cfg, false)
       // A push or a gh pr command changes what the GitHub section shows: read it again now.
@@ -1507,19 +1457,8 @@ export const register: Register = (on, options) => {
       getGithub($),
     ])
     const proofState = proofOf(await read($, proof))
-    const drawnPlan = v.demoAt != null ? demoPlan(v.demoAt) : realPlan
-    // With proof on a check mark is the dock's alone to draw: not a subject's, an agent's title's or its words'.
-    const isProofOn = proofState.allowed.length > 0 || proofState.draft !== null
-    const cards = isProofOn ? realCards.map(x => ({ ...x, description: withoutMarks(x.description), type: withoutMarks(x.type) })) : realCards
-    const lines = isProofOn ? realLines.map(x => ({ ...x, who: withoutMarks(x.who), text: withoutMarks(x.text) })) : realLines
-    const pl = isProofOn
-      ? {
-          ...drawnPlan,
-          tasks: drawnPlan.tasks.map(x => ({ ...x, subject: withoutMarks(x.subject), activeForm: withoutMarks(x.activeForm), group: x.group.map(withoutMarks) })),
-          groups: (drawnPlan.groups ?? []).map(withoutMarks),
-        }
-      : drawnPlan
-    const proofSeen = isProofOn ? workOf(await read($, proofWork)) : EMPTY_WORK
+    const proofWorkNow = isProofOn(proofState) ? workOf(await read($, proofWork)) : EMPTY_WORK
+    const { plan: pl, cards, lines } = unposed(proofState, { plan: v.demoAt != null ? demoPlan(v.demoAt) : realPlan, cards: realCards, lines: realLines })
     // The limits drawn: the session's, or cswap's reading of the active account (marked ~).
     const shown = shownLimits(u0.limits, acc, now)
     const u = { ...u0, limits: shown.limits }
@@ -2295,42 +2234,16 @@ export const register: Register = (on, options) => {
       const headerShown = shows('header') ? headerRows : 0
       const logReserve = shows('log') ? frameRows + 1 + Math.max(6, Math.round(bodyRows / 4)) : 0
       const planRoom = bodyRows - titleRows - headerShown - gitRows - ghRows - epicRows - archRows - agentsRows - timelineRowsN - (frameRows + 1) - logReserve
-      // Agent Proof, which draws nothing before setup. A sample plan's tasks have no claims.
-      const proofVm = presentProof(proofState, proofSeen, liveRuns(), logShown(), now)
-      for (const task of proofVm.tasks) {
-        const by = cards.find(x => x.id === task.claim.agentId)
-        if (by) task.claim = { ...task.claim, agentId: cardTitle(by) }
-      }
-      const proofDraw = { els: els as never, colors: C, width: Math.max(1, Math.min(inner, e.props.bodyColumns - (native ? 0 : 4))), act: proofActions($) }
-      // An id is not a task: a mark is drawn only on the completed task its claim is of.
-      const ofThisTask = proofVm.tasks.filter(x => {
-        const task = realPlan.tasks.find(y => y.id === x.claim.taskId && y.source === 'task')
-        return !x.claim.withdrawn && task?.status === 'completed' && isClaimOf(x.claim, task)
+      const proofView = proofDock({
+        draw: { els: els as never, colors: C, width: Math.max(1, Math.min(inner, e.props.bodyColumns - (native ? 0 : 4))), act: proofActions($, proofOps($)) },
+        columns: e.props.bodyColumns, state: proofState, work: proofWorkNow, tasks: realPlan.tasks, cards, isSample: v.demoAt != null, now,
       })
-      const proofTask = new Map(v.demoAt != null ? [] : ofThisTask.map(x => [x.claim.taskId, x] as const))
-      // Clipped, a command reads as another: none is allowed from a screen that cannot draw it whole.
-      const tooNarrow = e.props.bodyColumns < MIN_ALLOW_COLUMNS
-      const offered = proofVm.draft && tooNarrow ? { ...proofVm.draft, problem: `widen the dock to ${MIN_ALLOW_COLUMNS} columns` } : proofVm.draft
-      const proofHead = [setupDraft(proofDraw, offered), proofSummary(proofDraw, proofVm), proofNotices(proofDraw, proofVm), logTail(proofDraw, proofVm)]
-      const openTask = proofVm.tasks.find(x => x.claim.id === proofVm.openClaim)
-      const openDetail = openTask ? taskDetail(proofDraw, proofVm, openTask, 2) : null
-      const proofRows = proofHead.reduce((n, x) => n + x.rows, 0) + (openDetail?.rows ?? 0)
       // A section is one entry and several rows: the rows it adds beyond its entry.
       let tallRows = 0
-      const pushSection = (key: string, x: Section) => {
-        if (!x.node) return
+      const pushSection = (key: string, x: Section | null) => {
+        if (!x?.node) return
         push(key, x.node)
         tallRows += x.rows - 1
-      }
-      let isDetailDrawn = false
-      const markOf = (taskId: string) => {
-        const task = proofTask.get(taskId)
-        return task ? taskMark(proofDraw, task).node : null
-      }
-      const pushDetail = (taskId: string) => {
-        if (isDetailDrawn || !openDetail || openTask?.claim.taskId !== taskId) return
-        pushSection('proof-detail', openDetail)
-        isDetailDrawn = true
       }
       // Rows the outline does not count: the issue, the bar, agents under open tasks, an opened agent, work outside the plan.
       const looseCount = cards.filter(c => !taskOf.has(c.id)).length
@@ -2339,7 +2252,7 @@ export const register: Register = (on, options) => {
         (tree.total > 0 ? 1 : 0) +
         pl.tasks.filter(tk => tk.status !== 'completed').reduce((n, tk) => n + Math.min(4, cards.filter(c => taskOf.get(c.id) === tk.id).length), 0) +
         (v.expanded ? 7 : 0) +
-        proofRows +
+        proofView.rows +
         cards.filter(c => c.status === 'running' && c.tools.length > 0).length +
         (looseCount > 0 || advising ? 1 + Math.min(4, looseCount) + (advising ? 1 : 0) + (looseCount > 4 ? 1 : 0) : 0)
       const deckOutline = planOutline(tree, current, Math.max(4, planRoom - extras), { focus: handFocus, showDone: v.planDone === true })
@@ -2447,7 +2360,7 @@ export const register: Register = (on, options) => {
           </Text>
         ))
       }
-      proofHead.forEach((x, i) => pushSection(`proof-${i}`, x))
+      proofView.head.forEach((x, i) => pushSection(`proof-${i}`, x))
       for (const l of deckOutline) {
         const pad = '  '.repeat(l.depth)
         if (l.kind === 'group') {
@@ -2506,10 +2419,10 @@ export const register: Register = (on, options) => {
               </Box>
               {isNow && tk.startedAt !== null ? <Text dimColor>{` ${fmtDuration(now - tk.startedAt)}`}</Text> : null}
               {blockers.length > 0 ? <Text color={C.amber} dimColor wrap="truncate">{` after ${shorten(blockers[0]?.subject ?? '', 18)}`}</Text> : null}
-              {markOf(tk.id)}
+              {proofView.mark(tk.id)}
             </Box>
           ))
-          pushDetail(tk.id)
+          pushSection('proof-detail', proofView.takeDetail(tk.id))
           const mine = cards.filter(c => taskOf.get(c.id) === tk.id).slice(-4)
           mine.forEach((c, i) => pushAgent(c, `${pad}  `, i === mine.length - 1))
         } else {
@@ -2537,17 +2450,13 @@ export const register: Register = (on, options) => {
       // What room is left shows the latest finished tasks, newest first, unless they are listed already.
       const listed = new Set(deckOutline.flatMap(l => (l.task ? [l.task.id] : [])))
       // Not while the outline is cut short: open work comes before finished work.
-      const needsLook = (id: string) => {
-        const task = proofTask.get(id)
-        return task !== undefined && (task.verdict.state !== 'verified' || !task.isReviewed)
-      }
-      const recent = v.planDone || (proofTask.size === 0 && deckOutline.some(l => l.kind === 'more'))
+      const recent = v.planDone || (!proofView.hasMarks && deckOutline.some(l => l.kind === 'more'))
         ? []
         : pl.tasks
             .filter(tk => tk.status === 'completed' && !listed.has(tk.id))
-            .sort((x, y) => Number(needsLook(y.id)) - Number(needsLook(x.id)) || (y.doneAt ?? 0) - (x.doneAt ?? 0))
+            .sort((x, y) => Number(proofView.needsLook(y.id)) - Number(proofView.needsLook(x.id)) || (y.doneAt ?? 0) - (x.doneAt ?? 0))
             // A claim is of a finished task: with any, some of them always show.
-            .slice(0, Math.max(proofTask.size > 0 ? 3 : 0, Math.min(6, planRoom - rowsOut.length - tallRows - 1)))
+            .slice(0, Math.max(proofView.hasMarks ? 3 : 0, Math.min(6, planRoom - rowsOut.length - tallRows - 1)))
       if (recent.length > 0) {
         push('deck-recent', <Text dimColor>recently done</Text>)
         recent.forEach(tk => {
@@ -2560,14 +2469,14 @@ export const register: Register = (on, options) => {
                   {tk.subject}
                 </Text>
               </Box>
-              {markOf(tk.id)}
+              {proofView.mark(tk.id)}
             </Box>
           ))
-          pushDetail(tk.id)
+          pushSection('proof-detail', proofView.takeDetail(tk.id))
         })
       }
       // Folded away, its task still has what was opened.
-      if (openTask) pushDetail(openTask.claim.taskId)
+      pushSection('proof-detail', proofView.takeDetail())
       if (rowsOut.length === 0) push('deck-empty', <Text color={C.faint}>no tasks or subagents yet</Text>)
 
       // ---- git: one row a repository: name, branch, distance from its base, changed files

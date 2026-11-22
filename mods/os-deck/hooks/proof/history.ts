@@ -9,7 +9,8 @@ import { flushHistory, inTurn } from '../history'
 import { redact } from '../redact'
 import { setupProblem, suggestedChecks } from './grant'
 import type { ProofRecords } from './model'
-import { isLocalPath } from './revision'
+import { isLocalPath, spellRoot } from './revision'
+import { isCount, isObject } from './values'
 
 // Neither `os-deck:day:` nor `plan-history:`, the prefixes hooks/history.ts prunes.
 const PREFIX = 'os-deck:proof:'
@@ -37,7 +38,7 @@ const EXECUTIONS: readonly string[] = ['queued', 'running', 'exited', 'timed-out
 // ---------------------------------------------------------------- fields
 
 type Fields = Record<string, unknown>
-const fieldsOf = (v: unknown): Fields | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Fields) : null)
+const fieldsOf = (v: unknown): Fields | null => (isObject(v) ? v : null)
 
 /** An id or a hash: short, all of it showing, and nothing redaction would change. */
 const idOf = (v: unknown): string | null =>
@@ -45,7 +46,6 @@ const idOf = (v: unknown): string | null =>
 /** Free text: masked whole, then cut, so no cut splits a secret out of its rule. */
 const textOf = (v: unknown, max: number): string | null => (typeof v === 'string' ? shorten(redact(v), max) : null)
 const timeOf = (v: unknown): number | null => (typeof v === 'number' && v >= 0 && v <= 8.64e15 ? Math.floor(v) : null)
-const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
 
 /** The first `max` of a list; null where it is no list, or one of those is malformed. */
 const listOf = <T>(v: unknown, max: number, each: (x: unknown) => T | null): T[] | null => {
@@ -165,11 +165,6 @@ const checksOf = (root: string, v: unknown): ProofCheck[] | null => {
 
 // ---------------------------------------------------------------- keys
 
-/** One spelling of a root: git's and the engine's differ in slashes and, on Windows, in case. */
-const spellRoot = (root: string) => {
-  const s = root.replace(/\\/g, '/').replace(/\/+$/, '')
-  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s
-}
 const keyOf = (kind: Kind, root: string, at: number, id: string) => `${PREFIX}${kind}:${dirKey(spellRoot(root))}:${at}:${dirKey(id)}`
 const attemptKey = (root: string, a: ProofAttempt) => keyOf('a', root, a.startedAt, `${a.session} ${a.id}`)
 const claimKey = (root: string, c: ProofClaim) => keyOf('c', root, c.at, `${c.session} ${c.id}`)

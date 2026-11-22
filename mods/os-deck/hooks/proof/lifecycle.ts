@@ -12,6 +12,7 @@ const MAX_BASELINE_FILES = 100_000
 /** Past this a claim keeps some of its paths, to run and to show, and cannot verify. */
 const MAX_CHANGED = 5_000
 const MAX_EDITS = 256
+const MAX_EDITORS = 16
 const MAX_PATH = 1024
 const MAX_OVERLAP = 16
 const MAX_DESCRIPTIONS = 200
@@ -89,15 +90,18 @@ export const startTask: Lifecycle['startTask'] = (t, x) => {
     start: keepsBaseline ? [...x.start] : [],
     unread: keepsBaseline ? [...x.unread] : [...x.unread, ...x.start.map(m => m.root)],
     edits: [],
+    editors: [],
     overlap: t.open.map(o => o.taskId).reduce(withName, []),
   }
   return { ...t, open: [...overlappedBy(t.open, taskId), task] }
 }
 
 // Which task made an edit is not known, so it is every open one's.
-export const noteEdit: Lifecycle['noteEdit'] = (t, path) => ({
+export const noteEdit: Lifecycle['noteEdit'] = (t, path, editor) => ({
   ...t,
-  open: t.open.map(task => {
+  open: t.open.map(before => {
+    const isKept = before.editors.includes(editor) || before.editors.length >= MAX_EDITORS
+    const task = isKept ? before : { ...before, editors: [...before.editors, editor] }
     // Inside what the task started with it can never count as outside: not kept, so the room is for those that can.
     if (isInside(path, [...task.start.map(m => m.root), ...task.unread])) return task
     const kept = task.edits.length >= MAX_EDITS || path.length > MAX_PATH ? UNKEPT : path
@@ -130,7 +134,10 @@ export const completeTask: Lifecycle['completeTask'] = (t, x) => {
   const outside: string[] = []
   if (task) {
     const meanwhile = x.claims.filter(c => !isSame(c) && c.at > task.at && c.at <= x.at)
-    const names = [...task.overlap, ...others.map(o => o.taskId), ...meanwhile.map(c => (c.session === x.session ? c.taskId : c.id))]
+    // An agent that is neither the claimant nor its helper edited while it worked.
+    const other = task.editors.find(id => id !== (x.agentId ?? '') && !x.helpers.includes(id))
+    const byOther = other === undefined ? [] : [other ? `agent ${other}`.slice(0, MAX_ID) : 'the main agent']
+    const names = [...byOther, ...task.overlap, ...others.map(o => o.taskId), ...meanwhile.map(c => (c.session === x.session ? c.taskId : c.id))]
     const overlap = names.reduce(withName, [])
     // Every root known at either end must have been allowed and read at both.
     const roots = new Set([...x.roots, ...task.start.map(m => m.root), ...task.unread, ...x.end.map(m => m.root), ...x.unread])
@@ -173,15 +180,20 @@ export const withdrawClaims: Lifecycle['withdrawClaims'] = (claims, session, tas
 /** Whether a claim is of this task as it reads: an id can be renamed or used again. */
 export const isClaimOf = (claim: ProofClaim, task: { subject: string }) => claim.subject === redact(task.subject).slice(0, MAX_SUBJECT)
 
-/** A claim marked where an agent that is neither the claimant nor its helper edited meanwhile. */
-export const withEditors = (claim: ProofClaim, editors: readonly string[], helpers: readonly string[]): ProofClaim => {
-  const other = editors.find(id => id !== (claim.agentId ?? '') && !helpers.includes(id))
-  if (other === undefined) return claim
-  const name = other ? `agent ${other}`.slice(0, MAX_ID) : 'the main agent'
-  return { ...claim, changes: claim.changes.map(c => ({ ...c, overlap: withName(c.overlap, name) })) }
+/**
+ * Whether a task's claims no longer stand: an id is not a task, so deleted, reopened, renamed or used
+ * again, what was claimed is claimed no longer, whatever the plan remembered of it.
+ */
+export const endsClaims = (held: readonly ProofClaim[], now: { task: { status: string; subject: string } | undefined; created: boolean }) => {
+  const { task, created } = now
+  return held.length > 0 && (created || !task || task.status !== 'completed' || held.some(c => !isClaimOf(c, task)))
 }
 
 // ---------------------------------------------------------------- runs
+
+/** The claims as runs are owed by them: with no baseline, what a task changed could be in any root. */
+export const asOwing = (claims: readonly ProofClaim[], roots: readonly string[]): ProofClaim[] =>
+  claims.map(c => (c.hasBaseline ? c : { ...c, changes: roots.map(root => ({ root, paths: [{ path: '', hash: null }], overlap: [] })) }))
 
 export const rootsToRun: Lifecycle['rootsToRun'] = x => {
   if (!x.session) return []

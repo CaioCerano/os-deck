@@ -342,11 +342,17 @@ export type ProofSession = {
   draft: {
     root: string
     checks: ProofCheck[]
+    /** The offer's digest (checks, baselines, and all below but the problem): what a press is bound to. Empty with a problem. */
     digest: string
+    /** Package script bodies behind the checks, pre and post hooks included, exactly as written. */
     scripts: { checkId: string; name: string; body: string }[]
+    /** What the checks run, by the sha256 of its raw bytes as drawn; null where it was not there. */
     watched: [path: string, hash: string | null][]
+    /** Config that can change what runs, whole. */
     files: { path: string; body: string }[]
+    /** Why it may be run only by hand; null where it may run automatically. */
     manualOnly: string | null
+    /** Why it cannot be allowed as it stands; null where it can. */
     problem: string | null
     source: 'detected' | 'saved' | 'typed'
   } | null
@@ -359,12 +365,16 @@ export type ProofWork = {
     open: {
       taskId: string
       at: number
+      /** The session's allowed roots as the task began; a root missing here has no baseline for it. */
       start: { root: string; revision: string; files: [path: string, hash: string][] }[]
+      /** Roots allowed then whose content could not be read. */
       unread: string[]
+      /** Absolute paths of observed edits. */
       edits: string[]
+      /** Other tasks whose time under way overlapped this one's, kept after they end. */
       overlap: string[]
       /** Whose edits were seen meanwhile: an agent's id, or '' for the main loop. */
-      editors?: string[]
+      editors: string[]
     }[]
     descriptions: [taskId: string, text: string][]
   }

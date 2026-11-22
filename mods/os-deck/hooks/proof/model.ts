@@ -1,43 +1,25 @@
 // The contract between Agent Proof's parts. Types only. The hooks module owns the state and the engine
 // calls; lifecycle, setup, history and view are given values and hand values back.
-import type { EngineInterface } from 'claude-code'
-
-import type { ProofAttempt, ProofCheck, ProofClaim, ProofGrant, ProofReview } from '../../types'
+import type { ProofAttempt, ProofCheck, ProofClaim, ProofGrant, ProofReview, ProofSession, ProofWork } from '../../types'
 import type { RootVerdict, Verdict } from './verdict'
 
+/** What is worked from between a task's start and its end: session state, declared with it. */
+export type Tracking = ProofWork['tracking']
+export type OpenTask = Tracking['open'][number]
 /** A root's content as read: what `readRevision` gave, as plain data. */
-export type Manifest = { root: string; revision: string; files: [path: string, hash: string][] }
-
-/** A task under way: where each root stood as it began, and what was seen meanwhile. Session state. */
-export type OpenTask = {
-  taskId: string
-  at: number
-  /** The session's allowed roots as the task began; a root missing here has no baseline for it. */
-  start: Manifest[]
-  /** Roots allowed then whose content could not be read. */
-  unread: string[]
-  /** Absolute paths of observed edits. */
-  edits: string[]
-  /** Other tasks whose time under way overlapped this one's, kept after they end. */
-  overlap: string[]
-  editors?: string[]
-}
-
-export type Tracking = {
-  open: OpenTask[]
-  /** The agent's own descriptions, from TaskCreate, by task id. */
-  descriptions: [taskId: string, text: string][]
-}
+export type Manifest = OpenTask['start'][number]
+/** What setup found or was given, before anyone allowed anything: session state, declared with it. */
+export type Draft = NonNullable<ProofSession['draft']>
 
 /** proof/lifecycle.ts: pure. */
 export type Lifecycle = {
   describeTask: (t: Tracking, taskId: string, text: string) => Tracking
   startTask: (t: Tracking, x: { taskId: string; at: number; start: Manifest[]; unread: string[] }) => Tracking
-  noteEdit: (t: Tracking, path: string) => Tracking
+  noteEdit: (t: Tracking, path: string, editor: string) => Tracking
   dropTask: (t: Tracking, taskId: string) => Tracking
   completeTask: (
     t: Tracking,
-    x: { session: string; taskId: string; subject: string; agentId: string | null; at: number; end: Manifest[]; unread: string[]; roots: string[]; claims: readonly ProofClaim[] },
+    x: { session: string; taskId: string; subject: string; agentId: string | null; helpers: readonly string[]; at: number; end: Manifest[]; unread: string[]; roots: string[]; claims: readonly ProofClaim[] },
   ) => { tracking: Tracking; claim: ProofClaim }
   withdrawClaims: (claims: readonly ProofClaim[], session: string, taskId: string) => ProofClaim[]
   /** The roots an automatic run is owed on, now that a turn ended with an answer. */
@@ -55,44 +37,7 @@ export type Lifecycle = {
   reviewWorthy: (paths: readonly string[]) => string[]
 }
 
-/** What setup found or was given, before anyone allowed anything. */
-export type Draft = {
-  root: string
-  checks: ProofCheck[]
-  /** The offer's digest (checks, baselines, script bodies, and the three below): what a press is bound to. Empty with a problem. */
-  digest: string
-  /** Package script bodies behind the checks, pre and post hooks included, exactly as written. */
-  scripts: { checkId: string; name: string; body: string }[]
-  /** What the checks run, by the sha256 of its raw bytes as drawn; null where it was not there. */
-  watched: [path: string, hash: string | null][]
-  /** Config that can change what runs, whole. */
-  files: { path: string; body: string }[]
-  /** Why it may be run only by hand; null where it may run automatically. */
-  manualOnly: string | null
-  /** Why it cannot be allowed as it stands; null where it can. */
-  problem: string | null
-  source: 'detected' | 'saved' | 'typed'
-}
-
-/** proof/setup.ts: reads, runs nothing. */
-export type Setup = {
-  /** Candidate checks from manifests at the root. */
-  detectChecks: ($: EngineInterface, root: string) => Promise<ProofCheck[]>
-  /** `<kind> [--dir <folder>] -- <argv>` as typed, or why it was not understood. */
-  parseTypedCheck: (args: string) => { check: ProofCheck } | { error: string }
-  draftFor: ($: EngineInterface, root: string, checks: readonly ProofCheck[], source: Draft['source']) => Promise<Draft>
-}
-
 export type ProofRecords = { claims: ProofClaim[]; attempts: ProofAttempt[]; reviews: ProofReview[]; checks: ProofCheck[] }
-
-/** proof/history.ts: the store. Nothing read from it allows or verifies anything. */
-export type History = {
-  saveAttempt: ($: EngineInterface, attempt: ProofAttempt) => Promise<boolean>
-  saveClaim: ($: EngineInterface, root: string, claim: ProofClaim) => Promise<boolean>
-  saveReview: ($: EngineInterface, root: string, review: ProofReview) => Promise<boolean>
-  saveChecks: ($: EngineInterface, root: string, checks: readonly ProofCheck[]) => Promise<boolean>
-  loadRecords: ($: EngineInterface, root: string) => Promise<ProofRecords>
-}
 
 export type RootView = {
   root: string

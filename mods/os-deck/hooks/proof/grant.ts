@@ -4,6 +4,7 @@ import type { ProofCheck, ProofGrant } from '../../types'
 import { redact } from '../redact'
 import { isWindowsOddName } from './names'
 import { isLocalPath } from './revision'
+import { sha256 } from './values'
 
 const KINDS: readonly string[] = ['test', 'typecheck', 'lint', 'build']
 const PARSERS: readonly string[] = ['bun', 'pass-fail-lines']
@@ -76,10 +77,7 @@ export const setupProblem = (root: string, checks: readonly ProofCheck[]): strin
   return null
 }
 
-const hashed = async (value: unknown) => {
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value)))
-  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('')
-}
+const hashed = (value: unknown) => sha256(JSON.stringify(value))
 
 /**
  * The hash of what would run. The accepted counts are not in it: accepting a baseline judges the run

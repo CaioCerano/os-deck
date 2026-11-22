@@ -1,12 +1,12 @@
 // What one executed check shows, worked out from what was observed each time it is asked. Nothing
 // stores "pass", so nothing stored can be a pass.
 import type { ProofCheck, ProofResult } from '../../types'
+import { isCount } from './values'
 
 export type Outcome = { result: 'pass' | 'fail' | 'inconclusive'; reason: string }
 
 const inconclusive = (reason: string): Outcome => ({ result: 'inconclusive', reason })
 const fail = (reason: string): Outcome => ({ result: 'fail', reason })
-const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
 
 const NOT_FINISHED: Record<Exclude<ProofResult['execution'], 'exited'>, string> = {
   queued: 'not run',

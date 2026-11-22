@@ -4,8 +4,9 @@
 // files looks inside nested repositories, which the dock does nowhere else by default.
 import type { EngineInterface } from 'claude-code'
 
-import { gitHashRaw, gitRead } from '../safe-git'
+import { gitHashRaw, gitRead, namesIn } from '../safe-git'
 import { isWindowsOddName } from './names'
+import { sha256 } from './values'
 
 export type Revision =
   | { ok: true; revision: string; hashes: Map<string, string>; head: string | null }
@@ -15,7 +16,6 @@ export type Revision =
 const MAX_FILES = 20_000
 
 const no = (reason: string): Revision => ({ ok: false, reason })
-const namesIn = (stdout: string) => stdout.split('\0').filter(Boolean)
 const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 const baseOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
@@ -23,14 +23,13 @@ const baseOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 export const isLocalPath = (path: string) => /^[A-Za-z]:[\\/]/.test(path) || /^\/(?![\\/])/.test(path)
 const isWindows = (path: string) => /^[A-Za-z]:/.test(path)
 
-/** One spelling for a directory, so the root can be compared with what git calls the top. */
-export const samePath = (a: string, b: string) => {
-  const spell = (p: string) => {
-    const s = p.replace(/\\/g, '/').replace(/\/+$/, '')
-    return isWindows(s) ? s.toLowerCase() : s
-  }
-  return spell(a) === spell(b)
+/** One spelling of a directory: git's and the engine's differ in slashes and, on Windows, in case. */
+export const spellRoot = (path: string) => {
+  const s = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  return isWindows(s) ? s.toLowerCase() : s
 }
+
+export const samePath = (a: string, b: string) => spellRoot(a) === spellRoot(b)
 
 /** Why git, fed this path on a line of its own, would hash another file or none; null for a plain path. */
 export const oddPath = (path: string): string | null =>
@@ -119,11 +118,6 @@ async function presentFiles($: EngineInterface, root: string, paths: readonly st
     if (!taken.has(key(actual))) files.push({ listed: actual, actual })
   }
   return { files, missing }
-}
-
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 /** `info/exclude`, whose edits can hide a file from the listing; null where it cannot be read. */

@@ -27,7 +27,7 @@ export function gitHashRaw($: EngineInterface, dir: string, paths: readonly stri
   return $.process.run([...GIT, '-c', 'core.longpaths=true', '-C', dir, 'hash-object', '--no-filters', '--stdin-paths'], { timeoutMs: 30_000, env: NO_FETCH, stdin: `${paths.join('\n')}\n` })
 }
 
-const namesIn = (stdout: string) => stdout.split('\0').filter(Boolean)
+export const namesIn = (stdout: string) => stdout.split('\0').filter(Boolean)
 
 /** Branch, upstream distance, staged, untracked and conflicts, from refs, the index and directory listings. */
 export async function readRepoState($: EngineInterface, dir: string, withUntracked: boolean): Promise<RepoState | null> {

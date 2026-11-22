@@ -1,6 +1,7 @@
 // Agent Proof's session state as the controller uses it. The atoms are the hooks module's, which hands
 // over these four calls; everything here is pure.
 import type { ProofSession, ProofWork } from '../../types'
+import { isObject } from './values'
 
 export type ProofOps = {
   proof: () => Promise<ProofSession>
@@ -12,7 +13,6 @@ export type ProofOps = {
 export const EMPTY_PROOF: ProofSession = { session: '', allowed: [], claims: [], attempts: [], reviews: [], past: [], paused: [], openClaim: null, draft: null, notSaved: false }
 export const EMPTY_WORK: ProofWork = { tracking: { open: [], descriptions: [] }, seen: [], turnEnded: false }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isList = (v: unknown, each: (x: Record<string, unknown>) => boolean) => Array.isArray(v) && v.every(x => isObject(x) && each(x))
 
 /** Whole or empty, never repaired: a state half understood allows nothing and proves nothing. */
@@ -30,6 +30,6 @@ export const proofOf = (stored: unknown): ProofSession => {
 
 export const workOf = (stored: unknown): ProofWork => {
   if (!isObject(stored) || !isObject(stored.tracking)) return EMPTY_WORK
-  const ok = isList(stored.tracking.open, o => Array.isArray(o.start)) && Array.isArray(stored.tracking.descriptions) && isList(stored.seen, s => Array.isArray(s.files))
+  const ok = isList(stored.tracking.open, o => Array.isArray(o.start) && Array.isArray(o.editors)) && Array.isArray(stored.tracking.descriptions) && isList(stored.seen, s => Array.isArray(s.files))
   return ok ? (stored as unknown as ProofWork) : EMPTY_WORK
 }
