@@ -2,7 +2,7 @@
 
 [English](README.md) · **Português**
 
-**122 testes automatizados** (95 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
+**128 testes automatizados** (101 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
 
 ![O mascote do os-deck mudando de estado: pensando, lendo, editando, rodando um comando, subagentes, esperando seu ok, falhando, compactando, pronto, parado e dormindo](docs/media/mascot-states.gif)
 
@@ -20,10 +20,10 @@ O os-deck saiu do [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.
 | **[cswap](#conta-do-claude-cswap)** | A conta do Claude ativa e os limites dela, trocada pelo próprio dock |
 | **GitHub** | O PR da branch com checks, review e as issues que ele fecha |
 | **[Alertas](#alertas-e-previsões)** | Uma notificação quando um pedido fica esperando ou um turno longo termina |
-| **[Previsões](#alertas-e-previsões)** | Turnos até o contexto encher, tempo restante de cada fase do plano |
+| **[Previsões](#alertas-e-previsões)** | Turnos até o contexto encher, tempo restante do plano |
 | **Histórico** | Turnos, tempo, tarefas, subagentes, custo e espera por dia, entre sessões (`/os-deck today`, `/os-deck history`) |
 | **Plano, git e Jira** | Tarefas em árvore por fase com seus subagentes, o estado de cada repositório, o épico do Jira |
-| **Testes** | 95 testes novos, além de 27 mantidos dos 28 do Flightdeck |
+| **Testes** | 101 testes novos, além de 27 mantidos dos 28 do Flightdeck |
 
 ## Autor
 
@@ -125,7 +125,7 @@ Com a opção `alerts` (ligada por padrão), o OS-Deck manda uma notificação n
 
 Sem canal de notificação, o aviso vira um toast no painel.
 
-A linha de contexto do cabeçalho mostra quantos turnos faltam para o contexto encher (`~6 turns left`, ou `~6t` ao lado do mascote), pela média de crescimento dos últimos seis turnos; uma compactação recomeça a conta. No plano, a barra e cada grupo aberto mostram o tempo que falta (`~12m`), pela duração média das tasks concluídas nesta sessão; sem nenhuma concluída ainda, não há estimativa.
+A linha de contexto do cabeçalho mostra quantos turnos faltam para o contexto encher (`~6 turns left`, ou `~6t` ao lado do mascote), pela média de crescimento dos últimos seis turnos; uma compactação recomeça a conta. No plano, a barra mostra o tempo que falta (`~12m`), pela duração média das tasks concluídas nesta sessão; sem nenhuma concluída ainda, não há estimativa.
 
 ## Conta do Claude (cswap)
 
@@ -152,7 +152,7 @@ Saída de `claude plugin validate mods/os-deck`:
   - `prompt.submit`: só lê o prompt para achar a chave de issue do Jira citada (ancora o plano). Não altera o prompt.
   - `prompt.compose`: acrescenta ao prompt de sistema uma seção pedindo que as tarefas sejam agrupadas por trabalho e fase (desligável com `planHint` e `planPolicy`).
   - `tool.call` e `session.append`: só observam as chamadas de ferramenta e as mensagens para desenhar o plano, os agentes, as permissões e o log. Passam tudo adiante sem negar, reescrever nem atrasar nada.
-  - `$.process.run`: roda `git --no-optional-locks -C <dir> status|for-each-ref|rev-list|rev-parse` por vetor de argumentos, sem shell, para a seção Git. Com a opção `github` ligada, roda `<ghCommand> pr view --json …` e `<ghCommand> pr list --state open --json …` no diretório da sessão (só leitura). Com a opção `cswap` ligada, roda também `<cswapCommand> list --json` (leitura da conta) e `<cswapCommand> switch [<alvo>] --json`, este só quando a pessoa pede com `/os-deck account <alvo>`. O alvo é validado antes (veja a seção acima), e o executável vem só do `userConfig`, nunca de um argumento do comando.
+  - `$.process.run`: roda `git --no-optional-locks -C <dir> symbolic-ref|diff-index --cached|ls-files|for-each-ref|rev-list|rev-parse` por vetor de argumentos, sem shell, para a seção Git. Com a opção `github` ligada, roda `<ghCommand> pr view --json …` e `<ghCommand> pr list --state open --json …` no diretório da sessão (só leitura). Com a opção `cswap` ligada, roda também `<cswapCommand> list --json` (leitura da conta) e `<cswapCommand> switch [<alvo>] --json`, este só quando a pessoa pede com `/os-deck account <alvo>`. O alvo é validado antes (veja a seção acima), e o executável vem só do `userConfig`, nunca de um argumento do comando.
   - `$.fs.exists`, `$.fs.list`: acha o repositório git da sessão.
   - `$.tool.call`: lê issue e épico do Jira pelo conector Atlassian (`getJiraIssue`, `searchJiraIssuesUsingJql`), só com `jiraFetch` ligado ou com `/os-deck epic`. Cada leitura pede permissão como qualquer chamada de ferramenta.
 - `$.session.cwd`, `$.session.id`, `$.session.messages`, `$.session.usage`: diretório, id, histórico (para reconstruir o plano ao retomar) e uso da sessão.
@@ -160,7 +160,7 @@ Saída de `claude plugin validate mods/os-deck`:
 - `$.store`: seções ocultas, histórico do plano e o resumo de cada dia (`os-deck:history`, uns dois meses), entre sessões.
 - `$.ui.notify`: os alertas de permissão esperando e de turno longo (opção `alerts`). `$.clock.now`, `$.clock.every` (leitura da conta a cada 45 s), `$.clock.after` (nova leitura quando a janela de 35 s termina), ambos cancelados no fim da sessão, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
 
-Tudo o que o dock salva de comandos, agentes, tasks, Jira, GitHub e erros passa por uma redação que esconde tokens, senhas e chaves. Ela funciona por padrão de texto, então um segredo em formato desconhecido ainda pode aparecer. O git é lido com os filtros da config do próprio repositório desligados (inclusive os instalados com `git lfs install --local`), e as issues do Jira entram no system prompt só pela chave.
+O texto que o dock salva de comandos, agentes, tasks, Jira, GitHub e erros perde os caracteres de controle e passa por uma redação que esconde tokens, senhas e chaves. Ela funciona por padrão de texto, então um segredo em formato desconhecido ainda pode aparecer. O git é lido só com comandos que não abrem o conteúdo dos seus arquivos, porque esses podem fazer o git rodar programas escolhidos pelo repositório: por isso a seção Git conta arquivos staged, não rastreados e em conflito, mas não os modificados, e nunca diz que um repositório está limpo. Pastas montadas como repositório bare não são lidas (isso exige git 2.38 ou mais novo). Títulos e tipos do Jira não entram no system prompt; os nomes de seção de um plano que você aprovou entram.
 
 ## Configuração
 
@@ -182,7 +182,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Versão do Claude Code validada
 
-2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.4.1 passou nos seus 122 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
+2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.4.2 passou nos seus 128 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
 
 ## Licença
 

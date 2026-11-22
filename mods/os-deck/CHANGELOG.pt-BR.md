@@ -2,13 +2,24 @@
 
 [English](CHANGELOG.md) · **Português**
 
+## os-deck 0.4.2
+
+Correções de segurança. **A 0.4.1 não corrigiu o que dizia: atualize a partir de qualquer versão anterior.**
+
+- **Na 0.4.1 o git ainda podia rodar programas de um repositório.** Desligar filtros pelo nome podia ser contornado. Agora o git é lido só com comandos que nunca abrem o conteúdo dos arquivos, e pastas montadas como repositório bare não são lidas.
+- **Mudou:** a seção Git não conta mais arquivos modificados (`●N`) nem diz `clean`, porque os dois precisam do conteúdo dos arquivos.
+- **A migração da 0.4.1 nunca rodava.** O texto salvo por versões antigas agora é limpo no próximo carregamento.
+- **Caracteres de controle e de reordenação de texto** são removidos. Um só deles apagava o dock inteiro.
+- **Redação:** cobre também `Cookie:`, `docker login -p`, `redis-cli -a`, tokens escondidos atrás de cores de terminal, e status e responsável do Jira.
+- **Docs:** a estimativa de tempo restante aparece só na barra do plano, não em cada grupo como a 0.4.0 dizia.
+
 ## os-deck 0.4.1
 
 Correções de segurança e confiabilidade.
 
-- **Ler o git nunca executa o repositório.** O `git status` roda com os filtros da config do próprio repositório desligados, sem entrar em submódulos e sem fetch. Os seus filtros globais e de sistema (Git LFS incluído) continuam valendo.
+- **Leitura do git com os filtros do repositório desligados.** *(Correção: isso podia ser contornado; corrigido na 0.4.2.)* O `git status` roda com os filtros da config do próprio repositório desligados, sem entrar em submódulos e sem fetch. Os seus filtros globais e de sistema (Git LFS incluído) continuam valendo.
 - **Executáveis configurados.** `ghCommand` e `cswapCommand` aceitam um nome simples ou um caminho absoluto; um caminho relativo volta para o padrão.
-- **Redação em tudo.** Respostas e descrições de agentes, conselhos do architect, a linha do seu prompt no log, textos de tasks, do Jira e de PRs, e erros são mascarados antes de serem salvos. Muitos outros formatos de credencial são cobertos, o estado salvo por versões antigas é mascarado uma vez, e as regras rodam em tempo linear.
+- **Redação em tudo.** Respostas e descrições de agentes, conselhos do architect, a linha do seu prompt no log, textos de tasks, do Jira e de PRs, e erros são mascarados antes de serem salvos. Muitos outros formatos de credencial são cobertos, o estado salvo por versões antigas deveria ser mascarado uma vez (só passou a ser na 0.4.2), e as regras rodam em tempo linear.
 - **Jira no prompt.** O system prompt cita as issues só pela chave; título e tipo do ticket não entram mais. O dock continua mostrando os títulos.
 - **Alertas.** Um pedido deixa de esperar quando você aprova, não quando a ferramenta termina, e também quando a chamada é interrompida. O tempo de espera do histórico acompanha.
 - **Hooks e estado salvo.** Uma falha no trabalho do dock não chega à chamada de ferramenta que ele observa, e um valor salvo inválido é descartado em vez de quebrar toda escrita seguinte.
@@ -20,7 +31,7 @@ Correções de segurança e confiabilidade.
 - **Novos estados do mascote.** `running`: `Bash` e `PowerShell` agora mostram um terminalzinho com `>_`, prompt, comando e saída (antes caíam no teclado de edição). `compact`: quando o contexto compacta, o Clawd achata sob um `⟲` e pula de volta. Com o contexto em 85% ou mais, ele sua (gota ao lado da cabeça) e a legenda diz `ctx 92%`.
 - **Seção GitHub** (`github`, ligada por padrão): o PR da branch pelo `gh` CLI, com estado, checks (`✓ ✗ …`), review e as issues que ele fecha (`Closes #N`); sem PR, até três PRs abertos do repositório. Lê ao abrir a sessão, ao fim de cada turno (no máximo uma vez por minuto) e na hora depois de um `git push` ou `gh pr`. `/os-deck github` força a leitura e diz o que achou ou por que não leu. Opções `github` e `ghCommand`.
 - **Alertas.** Notificação nativa (pelo canal de notificação configurado: iTerm2, kitty, Ghostty, sino do terminal ou o app) quando um pedido de permissão espera mais de 30 s e quando um turno de 2 min ou mais termina. Não avisa no modo auto nem quando você mesmo interrompe o turno. Opções `alerts`, `alertAfterS` e `alertTurnMin`.
-- **Previsões.** A linha de contexto mostra quantos turnos faltam para encher (`~6 turns left`), pela média dos últimos turnos; uma compactação recomeça a conta. No plano, cada grupo aberto e a barra mostram o tempo estimado que falta, pela duração média das tasks já concluídas na sessão.
+- **Previsões.** A linha de contexto mostra quantos turnos faltam para encher (`~6 turns left`), pela média dos últimos turnos; uma compactação recomeça a conta. No plano, a barra mostra o tempo estimado que falta, pela duração média das tasks já concluídas na sessão.
 - **Histórico.** Cada dia fica guardado entre sessões: turnos, tempo trabalhando, tasks concluídas, subagentes, custo e pedidos de permissão (com o tempo que você levou para responder). `/os-deck today` (ou `hoje`) e `/os-deck history` (7 dias, com total).
 - **Correção:** o modo de permissão voltou a ser lido durante o turno. O `classic.PreToolUse` não traz mais `permission_mode`; agora ele vem de `classic.PermissionRequest` e `classic.PostToolUse`, então o `!` do mascote volta a sumir no modo auto mesmo depois de um shift+tab no meio do turno.
 - **Correção:** uma leitura de git ou GitHub que falha depois do fim da sessão não deixa mais uma rejeição solta.

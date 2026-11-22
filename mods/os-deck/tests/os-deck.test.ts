@@ -65,7 +65,6 @@ import {
   planTree,
   planOutline,
   parseAheadBehind,
-  parseGitStatus,
   pickBase,
   deckSectionOf,
   epicView,
@@ -1189,14 +1188,12 @@ test('jira: an issue the person cites and Claude reads anchors the plan, its sub
 })
 
 test('git status reads branch, upstream distance and files by state', () => {
-  const out = ['# branch.oid abc', '# branch.head feat/x', '# branch.upstream origin/feat/x', '# branch.ab +2 -1', '1 .M N... 100644 100644 100644 a b src/a.ts', '1 M. N... 100644 100644 100644 a b src/b.ts', '1 MM N... 100644 100644 100644 a b src/c.ts', '? notes.md', 'u UU N... 1 2 3 4 a b c src/d.ts'].join('\n')
-  const r = parseGitStatus(out, 'web')
-  expect([r.branch, r.ahead, r.behind, r.staged, r.modified, r.untracked, r.conflicts]).toEqual(['feat/x', 2, 1, 2, 2, 1, 1])
+  const r = { name: 'web', branch: 'feat/x', ahead: 2, behind: 1, base: null, baseAhead: 0, baseBehind: 0, staged: 2, untracked: 1, conflicts: 1 }
   expect(pickBase('origin/HEAD\norigin/main\norigin/dev\n')).toBe('origin/dev')
   expect(pickBase('origin/feat\n')).toBeNull()
   expect(parseAheadBehind('87\t3\n')).toEqual({ behind: 87, ahead: 3 })
   expect(parseAheadBehind('')).toBeNull()
-  const clean = parseGitStatus('# branch.head dev', 'api')
+  const clean = { ...r, name: 'api', branch: 'dev', ahead: 0, behind: 0, staged: 0, untracked: 0, conflicts: 0 }
   expect(sortRepos([clean, r]).map(x => x.name)).toEqual(['web', 'api'])
 })
 
@@ -1211,7 +1208,9 @@ test('a workspace of several repositories shows a git row for each, feature bran
     calls.push(argv.join(' '))
     const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } }) as never
     if (argv.includes('rev-parse')) return { value: { exitCode: 128, stdout: '', stderr: 'not a git repository' } } as never
-    if (argv.includes('status')) return argv.includes('/ws/web') ? ok('# branch.head feat/pie\n1 .M N... 1 1 1 a b x.ts') : ok('# branch.head dev\n# branch.upstream origin/dev\n# branch.ab +0 -5')
+    if (argv.includes('symbolic-ref')) return ok(argv.includes('/ws/web') ? 'refs/heads/feat/pie\n' : 'refs/heads/dev\n')
+    if (argv.includes('diff-index') && argv.includes('/ws/web')) return ok('x.ts\0')
+    if (argv.includes('@{upstream}...HEAD') && argv.includes('/ws/api')) return ok('5\t0')
     if (argv.includes('for-each-ref')) return ok('origin/HEAD\norigin/main\norigin/dev')
     if (argv.includes('rev-list')) return argv.includes('origin/dev...HEAD') ? ok('87\t3') : ({ value: { exitCode: 128, stdout: '', stderr: '' } } as never)
     return ok('')
@@ -1227,8 +1226,10 @@ test('a workspace of several repositories shows a git row for each, feature bran
   expect(row).toBeDefined()
   expect(await ui.find({ text: /↑3/ })).toBeDefined()
   expect(await ui.find({ text: /↓87/ })).toBeDefined()
-  expect(await ui.find({ text: /●1/ })).toBeDefined()
-  expect(await ui.find({ text: /clean/ })).toBeDefined()
+  expect(await ui.find({ text: /\+1/ })).toBeDefined()
+  expect(await ui.find({ text: /⇣5/ })).toBeDefined()
+  // Modified files are not read, so nothing may be called clean.
+  expect(await ui.find({ text: /clean/ })).toBeUndefined()
   // No git call may take the index lock the person's own commands need.
   expect(calls.length).toBeGreaterThan(0)
   expect(calls.every(c => c.startsWith('git --no-optional-locks '))).toBe(true)

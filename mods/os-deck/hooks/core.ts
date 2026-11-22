@@ -36,8 +36,8 @@ import type {
 
 export { redact, redactDeep }
 
-/** 3: text saved before every path was redacted is redacted once. */
-export const SCHEMA_VERSION = 3
+/** 4: text saved before every path was redacted and stripped of control characters is cleaned once. */
+export const SCHEMA_VERSION = 4
 
 // ---------------------------------------------------------------- defaults
 
@@ -1153,7 +1153,7 @@ const refOf = (x: unknown): JiraRef | null => {
     key: x.key,
     summary: typeof f.summary === 'string' ? redact(f.summary) : '',
     type: isObject(f.issuetype) && typeof f.issuetype.name === 'string' ? redact(f.issuetype.name) : '',
-    status: typeof status.name === 'string' ? status.name : '',
+    status: typeof status.name === 'string' ? redact(status.name) : '',
     isDone: cat.key === 'done',
   }
 }
@@ -1178,7 +1178,7 @@ export const jiraIssueOf = (result: unknown, site: string | null = null): JiraIs
   const f = x.fields
   return {
     ...ref,
-    assignee: isObject(f.assignee) && typeof f.assignee.displayName === 'string' ? f.assignee.displayName : '',
+    assignee: isObject(f.assignee) && typeof f.assignee.displayName === 'string' ? redact(f.assignee.displayName) : '',
     site,
     parent: refOf(f.parent),
     subtasks: listOf<unknown>(f.subtasks).map(refOf).filter((r): r is JiraRef => r !== null).slice(0, 20),
@@ -1239,26 +1239,6 @@ export const jiraHint = (j: JiraIssue): string => {
 
 export const DEFAULT_GIT: Git = { repos: [], at: 0 }
 
-/** `git status --porcelain=v2 --branch`: the branch, its upstream and counts, and the files by state. */
-export const parseGitStatus = (stdout: string, name: string): GitRepo => {
-  const repo: GitRepo = { name, branch: '', ahead: 0, behind: 0, base: null, baseAhead: 0, baseBehind: 0, staged: 0, modified: 0, untracked: 0, conflicts: 0 }
-  for (const line of stdout.split('\n')) {
-    if (line.startsWith('# branch.head ')) repo.branch = redact(line.slice(14).trim())
-    else if (line.startsWith('# branch.ab ')) {
-      const m = /\+(\d+) -(\d+)/.exec(line)
-      if (m) [repo.ahead, repo.behind] = [Number(m[1]), Number(m[2])]
-    } else if (line.startsWith('? ')) repo.untracked += 1
-    else if (line.startsWith('u ')) repo.conflicts += 1
-    else if (line.startsWith('1 ') || line.startsWith('2 ')) {
-      const xy = line.slice(2, 4)
-      if (xy[0] !== '.') repo.staged += 1
-      if (xy[1] !== '.') repo.modified += 1
-    }
-  }
-  if (repo.branch === '(detached)') repo.branch = 'detached'
-  return repo
-}
-
 /** `git rev-list --left-right --count base...HEAD`: behind, then ahead. */
 export const parseAheadBehind = (stdout: string): { ahead: number; behind: number } | null => {
   const m = /^(\d+)\s+(\d+)/.exec(stdout.trim())
@@ -1278,7 +1258,7 @@ export const isTrunk = (branch: string) => TRUNKS.has(branch)
 
 /** Repos with work in them first, then by name. */
 export const sortRepos = (repos: readonly GitRepo[]): GitRepo[] => {
-  const dirty = (r: GitRepo) => r.staged + r.modified + r.untracked + r.conflicts + r.ahead
+  const dirty = (r: GitRepo) => r.staged + r.untracked + r.conflicts + r.ahead
   return [...repos].sort((a, b) => Number(dirty(b) > 0) - Number(dirty(a) > 0) || a.name.localeCompare(b.name))
 }
 
@@ -1296,7 +1276,6 @@ export const normalizeGit = (stored: unknown): Git => {
       baseAhead: n(r.baseAhead),
       baseBehind: n(r.baseBehind),
       staged: n(r.staged),
-      modified: n(r.modified),
       untracked: n(r.untracked),
       conflicts: n(r.conflicts),
     }))
@@ -1502,7 +1481,7 @@ export const parseCswapList = (stdout: string): CswapAccount[] | null => {
     const a = x as { number?: unknown; email?: unknown; organizationName?: unknown; active?: unknown; usage?: { fiveHour?: unknown; sevenDay?: unknown } | null }
     if (typeof a.number !== 'number' || typeof a.email !== 'string') return []
     const limits = [cswapWindow('five_hour', a.usage?.fiveHour), cswapWindow('seven_day', a.usage?.sevenDay)].filter((l): l is Usage['limits'][number] => l !== null)
-    return [{ number: a.number, email: a.email, org: typeof a.organizationName === 'string' ? a.organizationName : '', isActive: a.active === true, limits }]
+    return [{ number: a.number, email: redact(a.email), org: typeof a.organizationName === 'string' ? redact(a.organizationName) : '', isActive: a.active === true, limits }]
   })
 }
 
@@ -1518,7 +1497,7 @@ export const parseCswapSwitch = (stdout: string): { isSwitched: boolean; to: str
   const r = d as { switched?: unknown; to?: { email?: unknown } | null; message?: unknown; error?: { message?: unknown } | null }
   if (r.error && typeof r.error === 'object') return { isSwitched: false, to: null, message: typeof r.error.message === 'string' ? redact(r.error.message) : 'cswap failed' }
   if (typeof r.switched !== 'boolean') return null
-  return { isSwitched: r.switched, to: typeof r.to?.email === 'string' ? r.to.email : null, message: typeof r.message === 'string' ? redact(r.message) : '' }
+  return { isSwitched: r.switched, to: typeof r.to?.email === 'string' ? redact(r.to.email) : null, message: typeof r.message === 'string' ? redact(r.message) : '' }
 }
 
 /**

@@ -95,7 +95,6 @@ import {
   isTrunk,
   normalizeGit,
   parseAheadBehind,
-  parseGitStatus,
   sortRepos,
   planPolicyHint,
   DECK_SECTIONS,
@@ -117,7 +116,7 @@ import type { AlertConfig } from './alerts'
 import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './github'
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
 import { HISTORY_KEY, historyReport, recordDay } from './history'
-import { gitRead, gitStatus } from './safe-git'
+import { gitRead, readRepoState } from './safe-git'
 import type { Config, Panel } from './core'
 
 const PANE = 'flightdeck'
@@ -132,7 +131,7 @@ const PLAN_HINT =
 
 // ---------------------------------------------------------------- state
 
-const meta = atom({ plugin: 'os-deck', key: 'meta' } as const, { schemaVersion: SCHEMA_VERSION })
+const meta = atom({ plugin: 'os-deck', key: 'meta' } as const, { schemaVersion: 0 })
 const main = atom({ plugin: 'os-deck', key: 'main' } as const, DEFAULT_MAIN)
 const usage = atom({ plugin: 'os-deck', key: 'usage' } as const, DEFAULT_USAGE)
 const architect = atom({ plugin: 'os-deck', key: 'architect' } as const, DEFAULT_ARCHITECT)
@@ -192,19 +191,19 @@ async function getGit($: EngineInterface): Promise<Git> {
 // Each repository's integration branch, found once: remote branches rarely come and go.
 const baseOf = new Map<string, string | null>()
 
-/** One repository: its status, and on a feature branch how far it sits from its integration branch. */
+/** One repository: its state, and on a feature branch how far it sits from its integration branch. */
 async function readRepo($: EngineInterface, dir: string, name: string): Promise<GitRepo | null> {
-  const st = await gitStatus($, dir)
-  if (st.exitCode !== 0) return null
-  const repo = parseGitStatus(st.stdout, name)
-  if (!repo.branch || isTrunk(repo.branch) || repo.branch === 'detached' || repo.branch === '(initial)') return repo
+  const state = await readRepoState($, dir)
+  if (!state) return null
+  const repo: GitRepo = { ...state, name: redact(name), branch: redact(state.branch), base: null, baseAhead: 0, baseBehind: 0 }
+  if (!repo.branch || isTrunk(repo.branch) || repo.branch === 'detached') return repo
   if (!baseOf.has(dir)) {
     const refs = await gitRead($, dir, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin'])
     baseOf.set(dir, refs.exitCode === 0 ? pickBase(refs.stdout) : null)
   }
   const base = baseOf.get(dir) ?? null
   if (!base) return repo
-  const ab = await gitRead($, dir, ['rev-list', '--left-right', '--count', `${base}...HEAD`])
+  const ab = await gitRead($, dir, ['rev-list', '--left-right', '--count', `${base}...HEAD`, '--'])
   const n = ab.exitCode === 0 ? parseAheadBehind(ab.stdout) : null
   return n ? { ...repo, base, baseAhead: n.ahead, baseBehind: n.behind } : repo
 }
@@ -647,6 +646,8 @@ async function migrate($: EngineInterface) {
   await update($, architect, a => redactDeep(normalize(DEFAULT_ARCHITECT, a)))
   await update($, plan, p => redactDeep(normalizePlan(p)))
   await update($, github, x => redactDeep(normalize(DEFAULT_GITHUB, x)))
+  await update($, git, x => redactDeep(normalizeGit(x)))
+  await update($, account, x => redactDeep(normalize(DEFAULT_ACCOUNT, x)))
   await update($, meta, () => ({ schemaVersion: SCHEMA_VERSION }))
 }
 
@@ -908,7 +909,7 @@ export const register: Register = (on, options) => {
       if (x.status === 'missing') return { text: `OS-Deck: ${cfg.ghCommand} was not found. Install the GitHub CLI or set the ghCommand option.` }
       if (x.status === 'error') return { text: `OS-Deck: GitHub could not be read: ${x.error ?? 'unknown error'}` }
       if (x.status === 'off') return { text: 'OS-Deck: GitHub has not been read yet; the session log says why if the read failed.' }
-      if (x.pr) return { text: `OS-Deck: #${x.pr.number} ${x.pr.title} · ${x.pr.state}${x.pr.isDraft ? ' (draft)' : ''} · ${checksLine(x.pr.checks).text} · review ${x.pr.review}${x.pr.closes.length ? ` · closes ${x.pr.closes.map(n => `#${n}`).join(' ')}` : ''}` }
+      if (x.pr) return { text: `OS-Deck: #${x.pr.number} ${shorten(x.pr.title, 120)} · ${x.pr.state}${x.pr.isDraft ? ' (draft)' : ''} · ${checksLine(x.pr.checks).text} · review ${x.pr.review}${x.pr.closes.length ? ` · closes ${x.pr.closes.map(n => `#${n}`).join(' ')}` : ''}` }
       return { text: `OS-Deck: no pull request for this branch; ${x.open.length} open in the repository.` }
     }
     if (verb === 'pet' || verb === 'mascote') {
@@ -2053,7 +2054,7 @@ export const register: Register = (on, options) => {
       const petDetailRows = petOn && v.petOpen ? 1 + petAgents.length : 0
       const textRows = petDetailRows + 3 + (u.limits.length > 0 ? 1 : 0) + (acc.status === 'ok' && acc.active ? 1 : 0) + (petOn || petCramped ? 1 : 0) + (archInHeader ? 1 : 0) + (showReceipt ? 1 : 0)
       const headerRows = frameRows + (petSide ? Math.max(PET_ROWS, textRows) : petOn ? PET_ROWS + textRows : textRows) + accountRows.length + gateOpenRows.length
-      // Each repository one row, under a title; a clean trunk with nothing to say still shows where it stands.
+      // Each repository one row, under a title; a trunk with nothing to say still shows where it stands.
       // The pane's frame already names it: the title row only counts tasks and agents, and goes when there are none.
       const titleRows = shows('title') && (tree.total > 0 || cards.length > 0) ? 1 : 0
       const repos = shows('git') ? gt.repos.slice(0, 4) : []
@@ -2328,7 +2329,7 @@ export const register: Register = (on, options) => {
 
       // ---- git: one row a repository: name, branch, distance from its base, changed files
       const gitRow = (rp: GitRepo) => {
-        const dirty = rp.staged + rp.modified + rp.untracked + rp.conflicts
+        const dirty = rp.staged + rp.untracked + rp.conflicts
         const base = rp.base ? rp.base.replace(/^origin\//, '') : null
         const nameW = Math.min(16, Math.max(...repos.map(x => x.name.length)))
         return (
@@ -2351,9 +2352,7 @@ export const register: Register = (on, options) => {
             <Box flexShrink={0}>
               {rp.conflicts > 0 ? <Text color={C.warn}>{` !${rp.conflicts}`}</Text> : null}
               {rp.staged > 0 ? <Text color={C.gate}>{` +${rp.staged}`}</Text> : null}
-              {rp.modified > 0 ? <Text color={C.amber}>{` ●${rp.modified}`}</Text> : null}
               {rp.untracked > 0 ? <Text dimColor>{` ?${rp.untracked}`}</Text> : null}
-              {dirty === 0 ? <Text color={C.faint}> clean</Text> : null}
             </Box>
           </Box>
         )

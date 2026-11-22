@@ -1,4 +1,5 @@
-// Credentials masked before text is stored, drawn or notified. The rules read untrusted text of any
+// Text made safe before it is stored, drawn or notified: control characters out (the engine refuses
+// a whole pane for one), credentials masked. The rules read untrusted text of any
 // length (commands, agent answers, pull request titles), so each is linear: a repeat that can be
 // retried from many starting points is bounded.
 
@@ -34,15 +35,27 @@ const RULES: readonly [RegExp, string][] = [
   [/(\bcurl(?:\.exe)?\b[^\n|;]{0,300}?\s(?:-u|--user|-U|--proxy-user)(?:=|[ \t]{0,5})["']?[^\s:"']{0,100}:)[^\s"']+/g, `$1${MASK}`],
   [/(\b(?:mysql|mysqldump|mysqladmin|mariadb|mariadb-dump)(?:\.exe)?\b[^\n|;&]{0,300}?\s-p)\S+/g, `$1${MASK}`],
   [/(\bsshpass\s{1,3}-p\s{0,3})(?:"[^"\n]*"?|'[^'\n]*'?|\S+)/g, `$1${MASK}`],
+  [/(\b(?:set-)?cookie["']?\s{0,5}:\s{0,5})[^\r\n"']+/gi, `$1${MASK}`],
+  [/(\bdocker(?:\.exe)?\s{1,3}login\b[^\n|;&]{0,300}?\s(?:-p|--password)(?:=|[ \t]{0,5}))\S+/g, `$1${MASK}`],
+  [/(\bredis-cli(?:\.exe)?\b[^\n|;&]{0,300}?\s-a[ \t]{1,5})\S+/g, `$1${MASK}`],
   // Credentials in a URL's authority.
   [/(:\/\/[^\s/:@]{0,200}:)[^\s@]{1,500}(?:@[^\s@/]{1,200}){0,3}@/g, `$1${MASK}@`],
   [/(:\/\/)[A-Za-z0-9_%-]{20,500}@/g, `$1${MASK}@`],
 ]
 
-/** The text with credentials masked; what is past the scan limit is left out, never passed through. */
+/** Terminal sequences, the other control characters, and the characters that hide or reorder text. */
+const plainText = (text: string) =>
+  text
+    .replace(/(?:\x1b\[|\x9b)[0-?]{0,64}[ -/]{0,8}[@-~]?/g, '')
+    .replace(/(?:\x1b\]|\x9d)[^\x07\x1b\x9c\n]*(?:\x07|\x1b\\|\x9c)?/g, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\t/g, ' ')
+    .replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f؜​‎‏‪-‮⁦-⁩﻿\u{e0000}-\u{e007f}]/gu, '')
+
+/** The text as plain text with credentials masked; what is past the scan limit is left out, never passed through. */
 export const redact = (text: string): string => {
   const isCut = text.length > MAX_SCAN
-  const out = RULES.reduce((t, [re, to]) => t.replace(re, to), isCut ? text.slice(0, MAX_SCAN) : text)
+  const out = RULES.reduce((t, [re, to]) => t.replace(re, to), plainText(isCut ? text.slice(0, MAX_SCAN) : text))
   return isCut ? `${out.slice(0, -CUT_MARGIN)}…` : out
 }
 

@@ -167,25 +167,83 @@ test('a failing state write neither blocks a tool nor replaces its result', asyn
   expect(JSON.stringify(ran)).toContain('the result')
 })
 
-test('git status runs with the repository filters blanked, the person\'s own kept', async ($, on) => {
+test('git is read by commands that never read file contents', async ($, on) => {
   world(on)
-  let status: { argv: string[]; init?: { env?: Record<string, string> }; env?: Record<string, string> } | null = null
+  const calls: string[][] = []
   on('process.run', (_$, e) => {
-    const x = e as unknown as NonNullable<typeof status>
+    const argv = (e as unknown as { argv: string[] }).argv
+    if (argv[0] === 'git') calls.push(argv)
     const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } }) as never
-    if (x.argv.includes('rev-parse')) return ok('/repo\n')
-    if (x.argv.includes('config')) return ok('global\0filter.lfs.clean\0local\0filter.evil=x.clean\0worktree\0filter.two.process\0')
-    if (x.argv.includes('status')) {
-      status = x
-      return ok('# branch.head main\n')
-    }
-    return { value: { exitCode: 1, stdout: '', stderr: '' } } as never
+    if (argv.includes('rev-parse')) return ok('/repo\n')
+    if (argv.includes('symbolic-ref')) return ok('refs/heads/feat/x\n')
+    if (argv.includes('for-each-ref')) return ok('origin/main\n')
+    if (argv.includes('rev-list')) return ok('0\t1\n')
+    return ok('')
   })
   await $.turn.start({ text: 'go', turnId: 'GS' })
   await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'GS', reason: 'answer' } as never)
-  for (let i = 0; i < 60 && !status; i++) await new Promise(done => setTimeout(done, 5))
-  const seen = JSON.stringify(status)
-  expect(seen).toContain('filter.evil=x.clean')
-  expect(seen).toContain('filter.two.process')
-  expect(seen).not.toContain('filter.lfs.clean')
+  for (let i = 0; i < 100 && !calls.some(a => a.includes('origin/main...HEAD')); i++) await new Promise(done => setTimeout(done, 5))
+  expect(calls.some(a => a.includes('origin/main...HEAD'))).toBe(true)
+  for (const argv of calls) {
+    const args = argv.slice(argv.indexOf('-C') + 2)
+    expect(['rev-parse', 'symbolic-ref', 'diff-index', 'ls-files', 'rev-list', 'for-each-ref']).toContain(args[0])
+    if (args[0] === 'diff-index') for (const needed of ['--cached', '--no-renames', '--no-ext-diff', '--no-textconv']) expect(args).toContain(needed)
+    // Each of these compares contents.
+    if (args[0] === 'ls-files') for (const banned of ['-m', '--modified', '-t', '--eol']) expect(args).not.toContain(banned)
+    expect(argv).toContain('safe.bareRepository=explicit')
+  }
+})
+
+test('state saved before any version was recorded is cleaned at session start', async ($, on) => {
+  world(on)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('session.start', () => ({ cwd: '/repo' }) as never)
+  on('state.get', (_$, e, next) =>
+    (e as unknown as { key: string }).key === 'log'
+      ? ({ value: { value: [{ at: 5, who: 'you', text: `password=${V}`, kind: 'info', agentId: null }], version: 1 } } as never)
+      : next(e),
+  )
+  let isCleaned = false
+  on('state.set', (_$, e, next) => {
+    if ((e as unknown as { key: string }).key === 'log' && !JSON.stringify(e).includes(V)) isCleaned = true
+    return next(e)
+  })
+  await $.session.start({ source: 'startup' } as never)
+  expect(isCleaned).toBe(true)
+})
+
+test('cookies, docker and redis passwords are masked', () => {
+  for (const s of [`Cookie: session=${V}`, `Set-Cookie: sid=${V}; HttpOnly`, `docker login -u me -p ${V}`, `redis-cli -h db -a ${V} ping`]) expect(redact(s)).not.toContain(V)
+})
+
+test('a token hidden behind a terminal colour is still masked', () => {
+  expect(redact(`\x1b[32mghp_${V}\x1b[0m`)).not.toContain(V)
+  expect(redact(`password\x00=${V}`)).not.toContain(V)
+})
+
+test('control and reordering characters are stripped, ordinary text kept', () => {
+  expect(redact('a\x1b[2Jb\x9b31mc\x1b]52;c;AAAA\x07d‮e\u{e0041}f')).toBe('abcdef')
+  expect(redact('one\r\ntwo\tthree')).toBe('one\ntwo three')
+  for (const s of ['Implementação', '✓ 5 · ~12m', '日本語', '👩‍💻']) expect(redact(s)).toBe(s)
+  for (const unit of ['\x1b[', '\x1b]', '\x9b1', '\r', 'cookie:', 'docker login ', 'redis-cli ']) {
+    const started = Date.now()
+    redact(unit.repeat(Math.ceil(50_000 / unit.length)))
+    expect(Date.now() - started).toBeLessThan(400)
+  }
+})
+
+test('Jira status and assignee are redacted', () => {
+  const issue = jiraIssueOf({ key: 'ABC-9', fields: { summary: 's', status: { name: `ghp_${V}` }, assignee: { displayName: `password=${V}` } } })
+  expect(JSON.stringify(issue)).not.toContain(V)
+})
+
+test('no control character in a task can blank the dock', async ($, on) => {
+  world(on)
+  const codes = [...Array.from({ length: 32 }, (_, i) => i), ...Array.from({ length: 33 }, (_, i) => 127 + i)]
+  const bad = String.fromCharCode(...codes)
+  on('tool.call', () => ({ result: { task: { id: '1' } } }) as never)
+  await $.tool.call({ tool: 'TaskCreate', subject: `before${bad}after`, description: 'd', metadata: { group: `G${bad}` }, tool_use_id: 'cc1' } as never)
+  const ui = await $.ui.mount(pane as never)
+  expect(JSON.stringify(await ui.drawn())).toContain('PLAN')
+  await ui.unmount()
 })

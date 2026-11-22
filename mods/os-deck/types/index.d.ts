@@ -169,7 +169,7 @@ export type PlanTask = {
   source: 'task' | 'todo' | 'jira'
 }
 
-/** One repository's state as `git status` and the base branch tell it. */
+/** One repository's state, read without its files' contents: so no count of modified files. */
 export type GitRepo = {
   name: string
   branch: string
@@ -181,7 +181,6 @@ export type GitRepo = {
   baseAhead: number
   baseBehind: number
   staged: number
-  modified: number
   untracked: number
   conflicts: number
 }

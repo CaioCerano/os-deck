@@ -2,13 +2,24 @@
 
 **English** · [Português](CHANGELOG.pt-BR.md)
 
+## os-deck 0.4.2
+
+Security fixes. **0.4.1 did not fix what it said it did: update from any earlier version.**
+
+- **Git could still run a repository's programs in 0.4.1.** Switching filters off by name could be bypassed. Git is now read only with commands that never open file contents, and folders laid out as bare repositories are not read.
+- **Changed:** the Git section no longer counts modified files (`●N`) or says `clean`, since both need file contents.
+- **The 0.4.1 migration never ran.** Text saved by older versions is now cleaned at the next load.
+- **Control and text-reordering characters** are stripped. A single one used to blank the whole dock.
+- **Redaction:** also covers `Cookie:`, `docker login -p`, `redis-cli -a`, tokens hidden behind terminal colours, and Jira status and assignee.
+- **Docs:** the time-left estimate shows on the plan's bar only, not on each group as 0.4.0 said.
+
 ## os-deck 0.4.1
 
 Security and reliability fixes.
 
-- **Reading git never runs the repository.** `git status` is read with the filters of the repository's own config turned off, without entering submodules and without fetching. Your global and system filters (Git LFS included) still apply.
+- **Reading git with repository filters off.** *(Correction: this could be bypassed; fixed in 0.4.2.)* `git status` is read with the filters of the repository's own config turned off, without entering submodules and without fetching. Your global and system filters (Git LFS included) still apply.
 - **Configured executables.** `ghCommand` and `cswapCommand` take a bare name or an absolute path; a relative path falls back to the default.
-- **Redaction everywhere.** Agent answers and descriptions, architect advice, your prompt's log line, task, Jira and pull request text, and errors are masked before they are stored. Many more credential formats are covered, state saved by older versions is masked once, and the rules take linear time.
+- **Redaction everywhere.** Agent answers and descriptions, architect advice, your prompt's log line, task, Jira and pull request text, and errors are masked before they are stored. Many more credential formats are covered, state saved by older versions was meant to be masked once (it was not until 0.4.2), and the rules take linear time.
 - **Jira in the prompt.** The system prompt names issues by key alone; a ticket's title and type no longer enter it. The dock still shows the titles.
 - **Alerts.** An ask stops waiting when you approve it, not when the tool finishes, and when its call is interrupted. The history's waiting time follows.
 - **Hooks and stored state.** A failure in the dock's own work does not reach the tool call it watches, and a bad stored value is dropped instead of breaking every later write.
@@ -20,7 +31,7 @@ Security and reliability fixes.
 - **New mascot states.** `running`: `Bash` and `PowerShell` now show a small terminal with `>_`, prompt, command and output (they used to fall into the editing keyboard). `compact`: when the context compacts, Clawd squashes flat under a `⟲` and springs back. With context at 85% or more, it sweats (a drop beside its head) and the caption says `ctx 92%`.
 - **GitHub section** (`github`, on by default): the branch's PR through the `gh` CLI, with its state, checks (`✓ ✗ …`), review and the issues it closes (`Closes #N`); with no PR, up to three of the repository's open PRs. Read when the session opens, at the end of each turn (at most once a minute) and right after a `git push` or `gh pr`. `/os-deck github` forces a read and says what it found or why it could not read. Options `github` and `ghCommand`.
 - **Alerts.** A native notification (through the configured notification channel: iTerm2, kitty, Ghostty, the terminal bell or the app) when a permission ask waits more than 30 s and when a turn of 2 min or more ends. No alert in auto mode, or when you stopped the turn yourself. Options `alerts`, `alertAfterS` and `alertTurnMin`.
-- **Forecasts.** The context line shows how many turns are left before it fills (`~6 turns left`), from the average of the last turns; a compaction starts the count over. In the plan, each open group and the bar show the estimated time left, from the average duration of the tasks already finished this session.
+- **Forecasts.** The context line shows how many turns are left before it fills (`~6 turns left`), from the average of the last turns; a compaction starts the count over. In the plan, the bar shows the estimated time left, from the average duration of the tasks already finished this session.
 - **History.** Each day is kept between sessions: turns, time working, tasks finished, subagents, cost and permission asks (with the time you took to answer). `/os-deck today` (or `hoje`) and `/os-deck history` (7 days, with a total).
 - **Fix:** the permission mode is read during the turn again. `classic.PreToolUse` no longer carries `permission_mode`; it now comes from `classic.PermissionRequest` and `classic.PostToolUse`, so the mascot's `!` hides in auto mode again, even after a shift+tab mid-turn.
 - **Fix:** a git or GitHub read that fails after the session ends no longer leaves an unhandled rejection.
