@@ -610,3 +610,17 @@ test('tsconfig named to a project is watched', async () => {
   expect(watchOf(await bodyIn('tsc -p config/ts.json'))).toContain('config/ts.json')
   expect(watchOf(await bodyIn('tsc --project config'))).toContain('config/tsconfig.json')
 })
+
+test('the grammar is of the whole body, an unknown program’s as well', async () => {
+  // Manual only says the program is not known, never that a line no shell reads one way was shown.
+  for (const body of ['cargo check; node x.js', 'cargo check | tee log', 'make "lint all"']) expect(await bodyRefused(body, RUNNABLE)).toEqual([body, true, ''])
+})
+
+test('a typed program of the grammar takes plain words alone', async () => {
+  for (const line of ['node ok.js a,b', 'bash tests/run_all.sh a;b', 'tsc =x']) expect([line, (await typedDraft(line, RUNNABLE)).problem !== null]).toEqual([line, true])
+})
+
+test('an option that is also the name of a file is still an option', async () => {
+  const named: Tree = { '-r.js': '', '-x': '' }
+  for (const line of ['node -r.js', 'bash -x']) expect([line, (await typedDraft(line, named)).problem !== null]).toEqual([line, true])
+})
