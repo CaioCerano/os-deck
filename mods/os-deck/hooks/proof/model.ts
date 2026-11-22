@@ -20,6 +20,7 @@ export type OpenTask = {
   edits: string[]
   /** Other tasks whose time under way overlapped this one's, kept after they end. */
   overlap: string[]
+  editors?: string[]
 }
 
 export type Tracking = {

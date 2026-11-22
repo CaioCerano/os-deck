@@ -170,6 +170,17 @@ export const completeTask: Lifecycle['completeTask'] = (t, x) => {
 export const withdrawClaims: Lifecycle['withdrawClaims'] = (claims, session, taskId) =>
   claims.map(c => (c.session === session && c.taskId === taskId && !c.withdrawn ? { ...c, withdrawn: true } : c))
 
+/** Whether a claim is of this task as it reads: an id can be renamed or used again. */
+export const isClaimOf = (claim: ProofClaim, task: { subject: string }) => claim.subject === redact(task.subject).slice(0, MAX_SUBJECT)
+
+/** A claim marked where an agent that is neither the claimant nor its helper edited meanwhile. */
+export const withEditors = (claim: ProofClaim, editors: readonly string[], helpers: readonly string[]): ProofClaim => {
+  const other = editors.find(id => id !== (claim.agentId ?? '') && !helpers.includes(id))
+  if (other === undefined) return claim
+  const name = other ? `agent ${other}`.slice(0, MAX_ID) : 'the main agent'
+  return { ...claim, changes: claim.changes.map(c => ({ ...c, overlap: withName(c.overlap, name) })) }
+}
+
 // ---------------------------------------------------------------- runs
 
 export const rootsToRun: Lifecycle['rootsToRun'] = x => {

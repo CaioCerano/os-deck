@@ -13,7 +13,7 @@ const ROOT = '/repo'
 const pause = (ms: number) => new Promise(done => setTimeout(done, ms))
 let sessions = 0
 
-const world = () => {
+const world = (ROOT = '/repo') => {
   const files: Record<string, string> = { 'package.json': JSON.stringify({ scripts: { test: 'bun test' } }), 'a.ts': 'one' }
   const w = {
     files,
@@ -22,6 +22,9 @@ const world = () => {
     git: 0,
     toasts: [] as string[],
     agents: [] as { status: string }[],
+    watching: 0,
+    hold: null as Promise<void> | null,
+    links: {} as Record<string, string>,
     output: ' 3 pass\n 0 fail\nRan 3 tests across 1 file.\n',
     code: 0,
     store: new Map<string, unknown>(),
@@ -53,7 +56,15 @@ const world = () => {
         const t = ms <= 500 ? setTimeout(fn, 1) : undefined
         return { cancel: () => (t === undefined ? undefined : clearTimeout(t)) }
       },
-      every: () => ({ cancel: () => undefined }),
+      every: () => {
+        let isOn = true
+        w.watching += 1
+        const cancel = () => {
+          if (isOn) w.watching -= 1
+          isOn = false
+        }
+        return { cancel }
+      },
     },
     agent: { list: async () => w.agents },
     ui: { toast: (text: string) => void w.toasts.push(text) },
@@ -65,8 +76,9 @@ const world = () => {
     },
     fs: {
       list: async (path: string) =>
-        path === ROOT ? [{ name: '.git', kind: 'dir', size: 0, isLink: false }, ...Object.keys(files).map(name => ({ name, kind: 'file', size: files[name]!.length, isLink: false }))] : [],
+        path.toLowerCase() === ROOT.toLowerCase() ? [{ name: '.git', kind: 'dir', size: 0, isLink: false }, ...Object.keys(files).map(name => ({ name, kind: 'file', size: files[name]!.length, isLink: false }))] : [],
       read: async (path: string) => files[path.slice(ROOT.length + 1)] ?? '',
+      stat: async (path: string) => ({ kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: w.links[path] ?? path }),
     },
     process: {
       run,
@@ -74,7 +86,10 @@ const world = () => {
         w.spawned.push(q.argv)
         let sent = false
         return {
-          next: async () => (sent ? { done: true, value: { code: w.code, signal: null } } : ((sent = true), { done: false, value: { stream: 'stdout', text: w.output } })),
+          next: async () => {
+            if (w.hold) await w.hold
+            return sent ? { done: true, value: { code: w.code, signal: null } } : ((sent = true), { done: false, value: { stream: 'stdout', text: w.output } })
+          },
           return: async () => ({ done: true }),
         }
       },
@@ -290,4 +305,182 @@ test('a review binds to what was drawn', async () => {
   expect((await view()).tasks[0]?.isReviewed).toBe(true)
   w.files['a.ts'] = 'three'
   expect((await view()).tasks[0]?.isReviewed).toBe(false)
+})
+
+// ---------------------------------------------------------------- what the red team got past
+
+const planWith = (tasks: { id: string; subject: string; status: TaskStatus }[]): Plan => ({
+  tasks: tasks.map(t => ({ ...t, activeForm: '', group: [], blockedBy: [], agents: [], startedAt: null, doneAt: null, source: 'task' as const })),
+})
+const claimed = { id: '1', subject: 'task 1', status: 'completed' as const }
+const moved: [name: string, before: Plan, after: Plan][] = [
+  ['renamed', planWith([claimed]), planWith([{ ...claimed, subject: 'security audit' }])],
+  ['deleted', planWith([claimed]), planWith([])],
+  ['deleted, unremembered', planWith([]), planWith([])],
+  ['created again', planWith([]), planWith([{ ...claimed, status: 'pending' }])],
+  ['started again, unremembered', planWith([]), planWith([{ ...claimed, status: 'in_progress' }])],
+]
+for (const [name, before, after] of moved)
+  test(`C2: a claimed task ${name} keeps no claim`, async () => {
+    const { w, $, ops, allow, work } = world()
+    await allow()
+    await work()
+    await proof.proofTaskChanged($, ops, { before, after, taskId: '1', agentId: null, description: null })
+    expect(w.p.claims.map(c => c.withdrawn)).toEqual([true])
+  })
+
+test('C3: a clock set back does not hide a failure', async () => {
+  const { w, $, ops, allow, work, endTurn, accept, view } = world()
+  await allow()
+  await work()
+  await endTurn()
+  await accept()
+  w.now -= 500
+  w.output = ' 0 pass\n 3 fail\nRan 3 tests across 1 file.\n'
+  await proof.pressVerify($, ops, ROOT)
+  await pause(80)
+  expect(w.spawned.length).toBe(2)
+  expect((await view()).roots[0]?.verdict.state).not.toBe('verified')
+})
+
+test('C3: a clock set back does not freeze the content seen', async () => {
+  const { w, allow, work, endTurn, accept, view } = world()
+  await allow()
+  await work()
+  await endTurn()
+  await accept()
+  expect((await view()).roots[0]?.verdict.state).toBe('verified')
+  w.now -= 500
+  w.files['a.ts'] = 'three'
+  expect((await view()).roots[0]?.verdict.state).toBe('stale')
+})
+
+test('C3: a new allowance takes no evidence from the one before, whatever the clock', async () => {
+  const { w, allow, work, endTurn, accept, view } = world()
+  await allow()
+  await work()
+  await endTurn()
+  await accept()
+  w.now -= 500
+  await allow()
+  expect((await view()).roots[0]?.verdict.state).toBe('pending')
+  expect(w.p.attempts).toEqual([])
+})
+
+test('H4: a resume keeps the watch', async () => {
+  const { w, $, ops } = world()
+  await proof.proofSessionStarted($, ops)
+  expect(w.watching).toBe(1)
+  await proof.proofSessionEnded(ops, 'resume' as never)
+  expect(w.watching).toBe(1)
+})
+
+test('H5: a command runs nothing: a link could have sent it', async () => {
+  const { w, $, ops, allow } = world()
+  await allow(false)
+  expect(await proof.proofCommand($, ops, 'run', true)).toContain('press verify')
+  await pause(80)
+  expect(w.spawned).toEqual([])
+})
+
+for (const how of ['allowed again as manual only', 'a turn started'])
+  test(`H6: a queued automatic run does not start once ${how}`, async () => {
+    const first = world('/rep1')
+    const second = world()
+    await first.allow(false)
+    await second.allow()
+    let release = () => undefined as void
+    first.w.hold = new Promise(done => (release = done))
+    await proof.pressVerify(first.$, first.ops, '/rep1')
+    await second.work()
+    await second.endTurn()
+    expect(second.w.spawned).toEqual([])
+    if (how === 'a turn started') await proof.proofTurnStarted(second.ops)
+    else await second.allow(false)
+    release()
+    await pause(120)
+    expect(second.w.spawned).toEqual([])
+  })
+
+test("H7: another agent's edit inside a task leaves attribution unknown", async () => {
+  const { w, $, ops, allow, task, endTurn, accept, view } = world()
+  await allow()
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'two'
+  await proof.proofToolRan($, ops, `${ROOT}/a.ts`, 'agent-other')
+  await task('1', 'completed')
+  await endTurn()
+  await accept()
+  expect((await view()).tasks[0]?.verdict.state).toBe('inconclusive')
+})
+
+test("H7: its own agent's edit is its own", async () => {
+  const { w, $, ops, allow, task, endTurn, accept, view } = world()
+  await allow()
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'two'
+  await proof.proofToolRan($, ops, `${ROOT}/a.ts`, null)
+  await task('1', 'completed')
+  await endTurn()
+  await accept()
+  expect((await view()).tasks[0]?.verdict.state).toBe('verified')
+})
+
+test('H7: an edit through a link out of the repository is outside', async () => {
+  const { w, $, ops, allow, task } = world()
+  await allow()
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'two'
+  w.links[`${ROOT}/linked/x.ts`] = '/elsewhere/x.ts'
+  await proof.proofToolRan($, ops, `${ROOT}/linked/x.ts`, null)
+  await task('1', 'completed')
+  expect(w.p.claims[0]?.outside).toEqual(['/elsewhere/x.ts'])
+})
+
+test('H9: what a press refused, a second press cannot allow', async () => {
+  const { w, $, ops } = world()
+  await proof.proofCommand($, ops, 'setup', true)
+  const drawn = w.p.draft?.digest ?? ''
+  w.files['package.json'] = JSON.stringify({ scripts: { test: 'node evil.js' } })
+  await proof.pressAllow($, ops, ROOT, drawn, true)
+  expect(w.p.draft).toBe(null)
+})
+
+test('M1: a completion with no baseline still owes a run', async () => {
+  const { w, allow, task, endTurn } = world()
+  await allow()
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  await endTurn()
+  expect(w.spawned.length).toBe(1)
+})
+
+test('M2: discarded while allowing, nothing is allowed', async () => {
+  const { w, $, ops } = world()
+  await proof.proofCommand($, ops, 'setup', true)
+  const drawn = w.p.draft?.digest ?? ''
+  const { run } = $.process
+  // Discarded once the press is past its first look at the draft.
+  ;($ as unknown as { process: { run: unknown } }).process.run = (...args: Parameters<typeof run>) => {
+    w.p = { ...w.p, draft: null }
+    return run(...args)
+  }
+  await proof.pressAllow($, ops, ROOT, drawn, true)
+  expect(w.p.allowed).toEqual([])
+})
+
+test('L4: a drive in another case is the same repository', async () => {
+  const { w, $, ops } = world('C:/repo')
+  await proof.proofCommand($, ops, 'setup c:/repo', true)
+  expect(w.p.draft?.root).toBe('C:/repo')
+})
+
+test('L5: another session id, with no end seen, draws no old evidence', async () => {
+  const { w, allow, work, endTurn, accept, view } = world()
+  await allow()
+  await work()
+  await endTurn()
+  await accept()
+  w.session = `${w.session}-resumed`
+  expect((await view()).tasks).toEqual([])
 })

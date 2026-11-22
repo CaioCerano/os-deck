@@ -26,12 +26,12 @@ export const rootVerdict = (f: RootFacts): RootVerdict => {
   let attempt: ProofAttempt | null = null
   for (const a of f.attempts) {
     if (a.session !== f.session || a.root !== f.root || a.digest !== grant.digest) continue
-    // Not from before this allowance. A clock set back only loses evidence.
-    if (!(a.startedAt >= grant.at)) continue
     // The one recorded last, never the one the clock calls newest.
     attempt = a
   }
-  if (!attempt) return { state: 'pending', reason: grant.auto ? 'runs when the turn ends' : 'press verify', attempt }
+  // Not from before this allowance. Where the last is, no earlier one stands in for it: that would keep
+  // a green over the failure after it, were the clock set back.
+  if (!attempt || !(attempt.startedAt >= grant.at)) return { state: 'pending', reason: grant.auto ? 'runs when the turn ends' : 'press verify', attempt: null }
   const is = (state: ProofState, reason: string): RootVerdict => ({ state, reason, attempt })
   if (attempt.endedAt === null && attempt.id === f.liveId) return is('verifying', 'checks are running')
   if (!current) return is('inconclusive', 'the content of this repository cannot be read')
@@ -75,7 +75,7 @@ export const taskVerdict = (claim: ProofClaim, roots: ReadonlyMap<string, RootNo
   else if (changes.length === 0) found.push({ state: 'inconclusive', reason: 'no change seen in an allowed repository' })
   if (claim.outside.length > 0) found.push({ state: 'inconclusive', reason: `edited outside the allowed repositories: ${claim.outside[0]}` })
   for (const change of changes) {
-    if (change.overlap.length > 0) found.push({ state: 'inconclusive', reason: 'attribution unknown: another task worked at the same time' })
+    if (change.overlap.length > 0) found.push({ state: 'inconclusive', reason: 'attribution unknown: another task or agent worked at the same time' })
     const now = roots.get(change.root)
     if (!now) {
       found.push({ state: 'pending', reason: 'its repository is not allowed in this session' })

@@ -994,7 +994,7 @@ export const register: Register = (on, options) => {
       stopAccountTimers()
       stopAlerts()
     }
-    await quietly($, 'proof end', () => proofSessionEnded(proofOps($), e.reason === 'clear'))
+    await quietly($, 'proof end', () => proofSessionEnded(proofOps($), e.reason))
     // What was asked to be saved is saved before the session goes.
     await flushHistory()
     if (e.reason === 'clear') {

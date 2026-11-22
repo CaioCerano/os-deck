@@ -8,7 +8,7 @@ import { redact } from '../redact'
 import { runAttempt } from './attempt'
 import { digestOf, grantFrom, watchedPaths } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
-import { changedWatched, completeTask, describeTask, dropTask, noteEdit, rootsToRun, startTask, withdrawClaims } from './lifecycle'
+import { changedWatched, completeTask, describeTask, dropTask, isClaimOf, noteEdit, rootsToRun, startTask, withEditors, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofViewModel } from './model'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
@@ -23,13 +23,20 @@ const READ_WAIT_MS = 1500
 const REFRESH_AFTER_MS = 2000
 const REFRESH_EVERY_MS = 30_000
 const MAX_KEPT = 100
-// Far more than attempts: each automatic run uses up a claim, so claims pruned first would end the runs.
+// Each automatic run uses up a claim, counted among the attempts kept: so as many of both are kept.
 const MAX_CLAIMS = 1000
+const MAX_ATTEMPTS = MAX_CLAIMS
+const MAX_EDITORS = 16
 
 // This load's own: what is running, its output, and the timers.
 const live = new Map<string, { id: string; signal: CancelSignal }>()
 const tails = new Map<string, string>()
-const queued = new Set<string>()
+const queued = new Map<string, object>()
+/** Runs whose allowance ended under them: what they still report is no evidence. */
+const revoked = new Set<string>()
+/** The order reads began in, which no clock changes, and the last applied of each session. */
+let lastRead = 0
+const applied = new Map<string, number>()
 let shownLog: ProofViewModel['log'] = null
 let eventQueue: Promise<unknown> = Promise.resolve()
 let runQueue: Promise<unknown> = Promise.resolve()
@@ -88,18 +95,19 @@ async function readWithin($: EngineInterface, roots: readonly string[], ms: numb
 
 /** Reads what is allowed as it is now, and pauses a root whose checks would run other than was allowed. */
 export async function refreshProof($: EngineInterface, ops: ProofOps): Promise<void> {
-  const { allowed, session } = await ops.proof()
-  if (allowed.length === 0 || session !== (await $.session.id())) return
+  // Another session id ends what is drawn, whether or not an end was seen.
+  const session = await currentSession($, ops)
+  const { allowed } = await ops.proof()
+  if (allowed.length === 0) return
+  const order = ++lastRead
   const at = await $.clock.now()
   const reads = await Promise.all(allowed.map(a => readRoot($, a.grant.root)))
+  // Two reads can overlap: the one begun later stands.
+  if (order < (applied.get(session) ?? 0)) return
+  applied.set(session, order)
   await ops.setWork(w => ({
     ...w,
-    seen: reads.map(r => {
-      const before = w.seen.find(s => s.root === r.root)
-      // Two reads can overlap: the one begun later stands.
-      if (before && before.at > at) return before
-      return { root: r.root, revision: r.manifest?.revision ?? null, files: r.manifest?.files ?? [], at, reason: r.reason }
-    }),
+    seen: reads.map(r => ({ root: r.root, revision: r.manifest?.revision ?? null, files: r.manifest?.files ?? [], at, reason: r.reason })),
   }))
   const paused: { root: string; paths: string[] }[] = []
   for (const a of allowed) {
@@ -117,7 +125,7 @@ function refreshSoon($: EngineInterface, ops: ProofOps) {
 
 // ---------------------------------------------------------------- task events
 
-export type TaskChange = { before: Plan; after: Plan; taskId: string; agentId: string | null; description: string | null }
+export type TaskChange = { before: Plan; after: Plan; taskId: string; agentId: string | null; description: string | null; created?: boolean }
 
 /**
  * A task as a tool call changed it. The call waits only for a content read, and not for long: an edit
@@ -138,18 +146,19 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     }
     const was = x.before.tasks.find(t => t.id === x.taskId)
     const is = x.after.tasks.find(t => t.id === x.taskId)
-    if (!is) {
-      if (was) await ops.setWork(w => ({ ...w, tracking: dropTask(w.tracking, x.taskId) }))
+    const held = p.claims.filter(c => c.session === session && c.taskId === x.taskId && !c.withdrawn)
+    // An id is not a task: deleted, reopened, renamed or used again, what was claimed is claimed no
+    // longer, whatever the plan remembered of it.
+    if (held.length > 0 && (x.created || !is || is.status !== 'completed' || held.some(c => !isClaimOf(c, is)))) {
+      await ops.setProof(s => ({ ...s, claims: withdrawClaims(s.claims, session, x.taskId) }))
+      for (const c of held) for (const root of new Set(c.changes.map(ch => ch.root))) void saveClaim($, root, { ...c, withdrawn: true })
+    }
+    if (!is || x.created) {
+      await ops.setWork(w => ({ ...w, tracking: dropTask(w.tracking, x.taskId) }))
       return
     }
     if (was?.status === is.status) return
     const roots = p.allowed.map(a => a.grant.root)
-    if (was?.status === 'completed') {
-      // Reopened: what was claimed is claimed no longer.
-      await ops.setProof(s => ({ ...s, claims: withdrawClaims(s.claims, session, x.taskId) }))
-      for (const c of (await ops.proof()).claims)
-        if (c.taskId === x.taskId && c.withdrawn) for (const root of new Set(c.changes.map(ch => ch.root))) void saveClaim($, root, c)
-    }
     if (is.status !== 'in_progress' && is.status !== 'completed') return
 
     const waited = (await $.clock.now()) - asked
@@ -163,7 +172,9 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     }
     const claims = (await ops.proof()).claims
     const { tracking } = await ops.work()
-    const done = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, agentId: x.agentId, at, end: manifests, unread, roots, claims })
+    const editors = tracking.open.find(o => o.taskId === x.taskId)?.editors ?? []
+    const completed = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, agentId: x.agentId, at, end: manifests, unread, roots, claims })
+    const done = { ...completed, claim: withEditors(completed.claim, editors, is.agents) }
     await ops.setWork(w => ({ ...w, tracking: done.tracking }))
     // The new completion replaces what an earlier one claimed.
     await ops.setProof(s => (s.session === session ? { ...s, claims: [...withdrawClaims(s.claims, session, x.taskId), done.claim].slice(-MAX_CLAIMS) } : s))
@@ -176,14 +187,35 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
   ;(timer as { cancel: () => void } | null)?.cancel()
 }
 
+/** Where an edit landed, links followed, spelled from the allowed root it landed in. */
+async function landedAt($: EngineInterface, roots: readonly string[], path: string): Promise<string> {
+  const resolved = async (of: string) => (await $.fs.stat(of, { resolve: true }).catch(() => null))?.realPath?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null
+  const real = await resolved(path)
+  if (!real) return path
+  for (const root of roots) {
+    const top = await resolved(root)
+    if (top && real.length > top.length + 1 && real[top.length] === '/' && samePath(real.slice(0, top.length), top)) return `${root}/${real.slice(top.length + 1)}`
+  }
+  return real
+}
+
 /** A file tool's path, or any shell call: what can have changed the content. */
-export async function proofToolRan($: EngineInterface, ops: ProofOps, editedPath: string | null): Promise<void> {
+export async function proofToolRan($: EngineInterface, ops: ProofOps, editedPath: string | null, agentId: string | null = null): Promise<void> {
   if ((await ops.proof()).allowed.length === 0) return
   if (editedPath) {
+    const editor = agentId ?? ''
     void inOrder(async () => {
       if ((await ops.work()).tracking.open.length === 0) return
-      const path = isLocalPath(editedPath) ? editedPath : `${await $.session.cwd()}/${editedPath}`
-      await ops.setWork(w => ({ ...w, tracking: noteEdit(w.tracking, path) }))
+      const named = isLocalPath(editedPath) ? editedPath : `${await $.session.cwd()}/${editedPath}`
+      const path = await landedAt($, (await ops.proof()).allowed.map(a => a.grant.root), named)
+      await ops.setWork(w => {
+        const tracking = noteEdit(w.tracking, path)
+        const open = tracking.open.map(o => {
+          const editors = o.editors ?? []
+          return editors.includes(editor) || editors.length >= MAX_EDITORS ? o : { ...o, editors: [...editors, editor] }
+        })
+        return { ...w, tracking: { ...tracking, open } }
+      })
     }).catch(() => undefined)
   }
   refreshSoon($, ops)
@@ -200,12 +232,14 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
   const id = `${startedAt.toString(36)}-${++lastId}`
   const signal = cancelSignal()
   live.set(root, { id, signal })
+  // Its output is this run's, or none.
+  for (const key of [...tails.keys()]) if (key.endsWith(`\n${root}`)) tails.delete(key)
   const record = (attempt: ProofAttempt) =>
     ops.setProof(p => {
-      // An end that lands after a /clear is nobody's evidence.
-      if (p.session !== attempt.session) return p
+      // An end that lands after a /clear, or after another allow, is nobody's evidence.
+      if (p.session !== attempt.session || revoked.has(attempt.id)) return p
       const at = p.attempts.findIndex(a => a.id === attempt.id)
-      const attempts = at < 0 ? [...p.attempts, attempt].slice(-MAX_KEPT) : p.attempts.map((a, i) => (i === at ? attempt : a))
+      const attempts = at < 0 ? [...p.attempts, attempt].slice(-MAX_ATTEMPTS) : p.attempts.map((a, i) => (i === at ? attempt : a))
       return { ...p, attempts }
     })
   try {
@@ -219,7 +253,7 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
       isStillAllowed: async () => {
         const p = await ops.proof()
         const now = p.allowed.find(a => a.grant.root === root)?.grant
-        return p.session === session && (await $.session.id()) === session && now?.digest === grant.digest && now.at === grant.at
+        return !revoked.has(id) && p.session === session && (await $.session.id()) === session && now?.digest === grant.digest && now.at === grant.at
       },
       onProgress: record,
     })
@@ -247,6 +281,7 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
     }
   } finally {
     live.delete(root)
+    revoked.delete(id)
     // Drawn again now that nothing runs, whatever else changed.
     await ops.setWork(w => ({ ...w }))
   }
@@ -254,11 +289,18 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
 
 function queueRun($: EngineInterface, ops: ProofOps, root: string, trigger: ProofAttempt['trigger']) {
   if (queued.has(root) || live.has(root)) return
-  queued.add(root)
+  const turn = {}
+  queued.set(root, turn)
   runQueue = runQueue
     .then(async () => {
-      // Cancelled while it waited.
-      if (!queued.delete(root)) return
+      // Cancelled, or allowed again, while it waited.
+      if (queued.get(root) !== turn) return
+      queued.delete(root)
+      // Owed as it was queued is not owed as it starts: a turn can begin, or automatic be switched off.
+      if (trigger === 'auto') {
+        if (!(await ops.work()).turnEnded) return
+        if ((await ops.proof()).allowed.find(a => a.grant.root === root)?.grant.auto !== true) return
+      }
       await runRoot($, ops, root, trigger)
     })
     .catch(() => undefined)
@@ -274,13 +316,17 @@ async function runOwed($: EngineInterface, ops: ProofOps): Promise<void> {
   await refreshProof($, ops)
   if (!(await ops.work()).turnEnded) return
   const p = await ops.proof()
+  // With no baseline what a task changed is not known, so it is owed a run of every root.
+  const claims = p.claims.map(c =>
+    c.hasBaseline ? c : { ...c, changes: p.allowed.map(a => ({ root: a.grant.root, paths: [{ path: '', hash: null }], overlap: [] })) },
+  )
   const roots = rootsToRun({
     session,
     grants: p.allowed.map(a => a.grant),
-    claims: p.claims,
+    claims,
     attempts: p.attempts,
     paused: p.paused.map(x => x.root),
-    busy: [...live.keys(), ...queued],
+    busy: [...live.keys(), ...queued.keys()],
   })
   for (const root of roots) queueRun($, ops, root, 'auto')
 }
@@ -305,7 +351,13 @@ export async function proofTurnEnded($: EngineInterface, ops: ProofOps, x: { isM
 export async function proofSessionStarted($: EngineInterface, ops: ProofOps): Promise<void> {
   await currentSession($, ops)
   watchTimer?.cancel()
-  // What an editor or another session changes raises no event here.
+  watchTimer = null
+  watch($, ops)
+}
+
+/** What an editor or another session changes raises no event here. */
+function watch($: EngineInterface, ops: ProofOps) {
+  if (watchTimer) return
   watchTimer = $.clock.every(REFRESH_EVERY_MS, () => {
     void (async () => {
       const p = await ops.proof()
@@ -316,10 +368,14 @@ export async function proofSessionStarted($: EngineInterface, ops: ProofOps): Pr
   })
 }
 
-export async function proofSessionEnded(ops: ProofOps, isClear: boolean): Promise<void> {
+export async function proofSessionEnded(ops: ProofOps, reason: string): Promise<void> {
   cancelAll()
   refreshTimer?.cancel()
-  if (!isClear) watchTimer?.cancel()
+  // A clear and a resume go on in this process, with no session.start to begin the watch again.
+  if (reason !== 'clear' && reason !== 'resume') {
+    watchTimer?.cancel()
+    watchTimer = null
+  }
   await ops.setWork(() => EMPTY_WORK)
   await ops.setProof(() => EMPTY_PROOF)
 }
@@ -333,7 +389,8 @@ async function topOf($: EngineInterface, from: string): Promise<string | null> {
     const dir = /^[A-Za-z]:$/.test(at) ? `${at}/` : at
     if (!isLocalPath(dir)) return null
     const found = await $.fs.list(dir).catch(() => [])
-    if (found.some(x => x.name === '.git' && !x.isLink)) return at
+    // One spelling for a drive, or one repository is two.
+    if (found.some(x => x.name === '.git' && !x.isLink)) return at.replace(/^[a-z]:/, drive => drive.toUpperCase())
     const up = at.slice(0, at.lastIndexOf('/'))
     if (up === at) return null
     at = up
@@ -363,12 +420,11 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
     return `OS-Deck proof, saved runs (history, not evidence):\n${lines.join('\n')}`
   }
   if (verb !== 'setup' && verb !== 'check' && verb !== 'run') return USAGE
-  // Only the person's own Enter: not a plugin, a schedule, another session or a link's click forwarded.
+  // The origin of a typed command is a clicked link's too: so this only shows and drafts, whoever sent it.
   if (!isTyped) return 'OS-Deck proof: type this command yourself.'
   if (verb === 'run') {
     if (p.allowed.length === 0) return 'OS-Deck proof: nothing is allowed in this session. /os-deck proof setup first.'
-    for (const a of p.allowed) queueRun($, ops, a.grant.root, 'manual')
-    return 'OS-Deck proof: running the allowed checks.'
+    return 'OS-Deck proof: press verify in the dock. A command does not run checks: a clicked link looks like a typed one.'
   }
 
   let typed: ProofCheck | null = null
@@ -382,7 +438,8 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
     if (/^[\\/]{2}|(?:^|[\\/])\.\.(?:[\\/]|$)/.test(folder)) return 'OS-Deck proof: give a folder on this machine, without "..".'
     from = isLocalPath(folder) ? folder : `${from}/${folder}`
   }
-  const root = (verb === 'check' ? p.draft?.root : null) ?? (await topOf($, from))
+  const found = (verb === 'check' ? p.draft?.root : null) ?? (await topOf($, from))
+  const root = found && (p.allowed.find(a => samePath(a.grant.root, found))?.grant.root ?? found)
   if (!root) return 'OS-Deck proof: that folder is not inside a git repository. /os-deck proof setup <folder> names one.'
 
   const records = await loadRecords($, root)
@@ -411,7 +468,11 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
 // ---------------------------------------------------------------- presses
 
 export async function pressAllow($: EngineInterface, ops: ProofOps, root: string, drawnDigest: string, auto: boolean): Promise<void> {
-  const refuse = (why: string) => $.ui.toast(`OS-Deck proof: ${why}`)
+  const refuse = async (why: string) => {
+    // A second press on the same spot would allow what this one refused: setup is asked for again.
+    await ops.setProof(p => (p.draft?.root === root ? { ...p, draft: null } : p))
+    $.ui.toast(`OS-Deck proof: ${why}. Nothing was allowed: /os-deck proof setup shows it again`)
+  }
   const session = await currentSession($, ops)
   const draft = (await ops.proof()).draft
   if (!draft || draft.root !== root || draft.digest !== drawnDigest || !drawnDigest || draft.problem) return refuse('what was pressed is no longer what is shown')
@@ -419,10 +480,7 @@ export async function pressAllow($: EngineInterface, ops: ProofOps, root: string
   if (!start.ok) return refuse(`this repository cannot be verified: ${start.reason}`)
   // Drafted again after the content was read, so the bodies shown are those whose hashes are watched.
   const again = await draftFor($, root, draft.checks, draft.source)
-  if (again.problem || again.digest !== drawnDigest) {
-    await ops.setProof(p => ({ ...p, draft: again }))
-    return refuse('the checks changed since they were shown: read them again')
-  }
+  if (again.problem || again.digest !== drawnDigest) return refuse('the checks changed since they were shown')
   const at = await $.clock.now()
   const made = await grantFrom({ session, root, checks: again.checks, scripts: again.scripts, drawnDigest, auto, at })
   if ('refused' in made) return refuse(made.refused)
@@ -437,11 +495,31 @@ export async function pressAllow($: EngineInterface, ops: ProofOps, root: string
     for (const arg of check.argv)
       for (const file of ['.claude-plugin/plugin.json', 'hooks/hooks.json']) if (start.hashes.has(`${arg}/${file}`)) paths.add(`${arg}/${file}`)
   const watched = [...paths].map(path => [path, start.hashes.get(path) ?? null] as [string, string | null])
-  live.get(root)?.signal.cancel()
+  let isAllowed = false
   await ops.setProof(p => {
-    if (p.session !== session) return p
-    return { ...p, draft: null, paused: p.paused.filter(x => x.root !== root), allowed: [...p.allowed.filter(a => !samePath(a.grant.root, root)), { grant: made.grant, watched }] }
+    // Discarded, or replaced, while this was read.
+    isAllowed = p.session === session && p.draft?.root === root && p.draft.digest === drawnDigest
+    if (!isAllowed) return p
+    const isHere = (x: { root: string }) => samePath(x.root, root)
+    // A new allowance takes no evidence from the one before, whatever the clock says of which came first.
+    const past = p.attempts.filter(isHere).map(a => ({ root, at: a.startedAt, label: pastLabel(a) }))
+    return {
+      ...p,
+      draft: null,
+      paused: p.paused.filter(x => !isHere(x)),
+      attempts: p.attempts.filter(a => !isHere(a)),
+      past: [...p.past, ...past].slice(-MAX_KEPT),
+      allowed: [...p.allowed.filter(a => !isHere(a.grant)), { grant: made.grant, watched }],
+    }
   })
+  if (!isAllowed) return
+  queued.delete(root)
+  const running = live.get(root)
+  if (running) {
+    revoked.add(running.id)
+    running.signal.cancel()
+  }
+  watch($, ops)
   await refreshProof($, ops)
   await noteSaved(ops, await saveChecks($, root, made.grant.checks))
 }

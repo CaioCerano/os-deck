@@ -13,7 +13,7 @@ const INNER = 'C:/work/app/inner'
 
 const NO_BASELINE = 'its start was not seen, so what it changed is not known'
 const NO_CHANGE = 'no change seen in an allowed repository'
-const OVERLAP = 'attribution unknown: another task worked at the same time'
+const OVERLAP = 'attribution unknown: another task or agent worked at the same time'
 const REVERTED = 'changed since this claim'
 const OUTSIDE = 'edited outside the allowed repositories: '
 

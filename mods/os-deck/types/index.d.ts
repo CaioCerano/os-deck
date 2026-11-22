@@ -360,6 +360,8 @@ export type ProofWork = {
       unread: string[]
       edits: string[]
       overlap: string[]
+      /** Whose edits were seen meanwhile: an agent's id, or '' for the main loop. */
+      editors?: string[]
     }[]
     descriptions: [taskId: string, text: string][]
   }
