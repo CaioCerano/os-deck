@@ -136,6 +136,7 @@ What to know before you press allow:
 - On Windows, an npm check is refused where a program it runs is a link in `node_modules/.bin`: setup follows no link there, as one could lead to a network share. Off Windows setup reads where such a link leads, before any press.
 - An npm check is refused under a workspace of a folder above, which would lend it config nobody was shown.
 - An npm check is refused where a folder's name holds the character that separates PATH entries (`;` on Windows), which would send npm into another folder.
+- An edit counts as inside a repository only where the tool named it by a full path. A relative one, or one with no drive or with `~`, counts as outside: which folder it was resolved from is not known.
 - An edit still running, or waiting on your permission, as a task completes counts as that task's, even if it is denied afterwards.
 - A check that has started when you begin another turn is left to finish; none is started after that.
 - A claim you never reviewed, even one replaced or reopened since, keeps its repository at "to review" for the session (its last 1,000 claims). Only its newest claim has a button.

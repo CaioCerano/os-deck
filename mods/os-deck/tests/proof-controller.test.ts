@@ -1167,7 +1167,7 @@ for (const how of ['a link, then folders not made yet', 'a link that leads nowhe
 
 // ---------------------------------------------------------------- what the sixth attack got past
 
-const OUT = ['\\beside\\x.ts', '/beside/x.ts', '~/notes/x.md', '~someone/x.md', 'C:x.ts', 'D:\\beside\\x.ts', '\\\\host\\share\\x.ts', '//host/share/x.ts', '  ~/x.md', 'a.ts:hidden']
+const OUT = ['/q/../repo/a.ts', '/Q/repo/a.ts', '/repo/a.ts', '\\repo\\a.ts', 'a.ts', './a.ts', 'real-work.md', '\\beside\\x.ts', '/beside/x.ts', '~/notes/x.md', '~someone/x.md', 'C:x.ts', 'D:\\beside\\x.ts', '\\\\host\\share\\x.ts', '//host/share/x.ts', '  ~/x.md', 'a.ts:hidden']
 for (const when of ['returned', 'in flight'] as const)
   test(`T1: an outside edit ${when} is outside, however it is spelled`, async () => {
     for (const path of OUT) {
@@ -1185,7 +1185,7 @@ for (const when of ['returned', 'in flight'] as const)
   })
 
 test('T1: an inside edit is inside, however it is spelled', async () => {
-  for (const path of ['C:\\repo\\a.ts', '/repo/a.ts', '\\repo\\a.ts', 'a.ts', './a.ts', 'c:/REPO/a.ts']) {
+  for (const path of ['C:\\repo\\a.ts', 'C:/repo/a.ts', ' C:/repo/a.ts ', '/c/repo/a.ts', '/C/repo/a.ts', 'c:/REPO/a.ts']) {
     const { w, $, ops, allow, task } = world('C:/repo')
     await allow()
     await task('1', 'in_progress')
@@ -1217,4 +1217,10 @@ test('C3: setup takes a folder with no drive to the drive it is on, and one it c
   await proof.proofCommand($, ops, 'setup /repo', true)
   expect(w.p.draft?.root).toBe('C:/repo')
   for (const folder of ['~/repo', 'C:repo', '//host/share']) expect([folder, await proof.proofCommand($, ops, `setup ${folder}`, true)]).toEqual([folder, 'OS-Deck proof: give a folder on this machine, without "~" or "..".'])
+})
+
+test('U1: setup reads /d/ as that drive, as the file tools do', async () => {
+  const { w, $, ops } = world('C:/repo')
+  await proof.proofCommand($, ops, 'setup /c/repo', true)
+  expect(w.p.draft?.root).toBe('C:/repo')
 })

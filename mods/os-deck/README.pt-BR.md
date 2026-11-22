@@ -136,6 +136,7 @@ O que saber antes de apertar allow:
 - No Windows, um check de npm é recusado quando um programa que ele roda é um link em `node_modules/.bin`: o setup não segue link ali, porque um poderia levar a um compartilhamento de rede. Fora do Windows o setup lê para onde esse link leva, antes de qualquer botão.
 - Um check de npm é recusado sob um workspace de uma pasta acima, que emprestaria a ele uma config que ninguém viu.
 - Um check de npm é recusado quando o nome de uma pasta tem o caractere que separa as entradas do PATH (`;` no Windows), que mandaria o npm para outra pasta.
+- Uma edição só conta como dentro de um repositório quando a ferramenta a nomeou com caminho completo. Uma relativa, sem drive ou com `~` conta como fora: não se sabe de qual pasta ela foi resolvida.
 - Uma edição ainda rodando, ou esperando a sua permissão, quando uma tarefa termina conta como dessa tarefa, mesmo se for negada depois.
 - Um check que já começou quando você inicia outro turno termina; nenhum começa depois disso.
 - Uma alegação que você nunca revisou, mesmo substituída ou reaberta depois, mantém o repositório dela em "to review" pela sessão (as últimas 1.000 alegações). Só a mais nova tem botão.

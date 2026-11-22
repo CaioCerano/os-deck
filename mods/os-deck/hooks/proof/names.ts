@@ -5,15 +5,30 @@ export const isWindowsOddName = (name: string) =>
 /** Case folded as NTFS folds what is written here: ASCII alone. Unicode's folding makes one name of two files. */
 export const foldCase = (text: string) => text.replace(/[A-Z]+/g, s => s.toLowerCase())
 
+const onWindows = (cwd: string) => /^[A-Za-z]:/.test(cwd)
+/** A path trimmed, `/d/x` on Windows drive D's, as the file tools read it. */
+const asToolsRead = (given: string, cwd: string) =>
+  onWindows(cwd) ? given.trim().replace(/^\/([A-Za-z])\//, (_, drive: string) => `${drive.toUpperCase()}:/`) : given.trim()
+
 /**
- * A path as a tool or a person gave it, absolute as this system takes it from `cwd`. Null where that
- * is not certain (`~`, a drive's current folder, a stream, the network): never joined on a guess.
+ * Where an edit's path is, from the path alone. A relative one is resolved from the caller's folder
+ * as the tool ran, which nothing here knows, so it has none, as one with no drive has none.
+ */
+export const editPath = (named: string, cwd: string): string | null => {
+  const path = asToolsRead(named, cwd)
+  const isFull = onWindows(cwd) ? /^[A-Za-z]:[\\/]/.test(path) : path.startsWith('/')
+  return isFull ? placedPath(path, cwd) : null
+}
+
+/**
+ * A path as a person gave it, absolute as this system takes it from `cwd`. Null where that is not
+ * certain (`~`, a drive's current folder, a stream, the network): never joined on a guess.
  */
 export const placedPath = (given: string, cwd: string): string | null => {
-  const path = given.trim()
+  const path = asToolsRead(given, cwd)
   if (path === '' || path.startsWith('~') || /^[\\/]{2}/.test(path)) return null
   const base = cwd.replace(/[\\/]+$/, '')
-  if (!/^[A-Za-z]:/.test(cwd)) return path.startsWith('/') ? path : `${base}/${path}`
+  if (!onWindows(cwd)) return path.startsWith('/') ? path : `${base}/${path}`
   const rest = /^[A-Za-z]:[\\/]/.test(path) ? path.slice(2) : path
   if (rest.includes(':')) return null
   if (rest !== path) return path

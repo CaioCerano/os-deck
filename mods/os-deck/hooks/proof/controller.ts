@@ -11,7 +11,7 @@ import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
 import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, waitTask, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofActions, ProofViewModel } from './model'
-import { placedPath } from './names'
+import { editPath, placedPath } from './names'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
 import { cancelSignal } from './runner'
@@ -227,7 +227,8 @@ async function noteEditing($: EngineInterface, ops: ProofOps, session: string, r
 
 /** An edit's path as a tool named it, to where it lands; one that cannot be placed is inside no root. */
 async function placeEdit($: EngineInterface, roots: readonly string[], named: string): Promise<string> {
-  const path = placedPath(named, await $.session.cwd())
+  // The session's folder says which system this is, and no more.
+  const path = editPath(named, await $.session.cwd())
   return path ? landedAt($, roots, path) : `unresolved path: ${named}`
 }
 
@@ -237,7 +238,8 @@ async function landedAt($: EngineInterface, roots: readonly string[], path: stri
   let real = await resolved(path)
   if (!real) {
     // Not there yet: where the nearest folder that is leads is where it will land.
-    const steps = path.replace(/\\/g, '/').split('/')
+    // Off Windows a backslash is a letter of a name.
+    const steps = (/^[A-Za-z]:/.test(path) ? path.replace(/\\/g, '/') : path).split('/')
     let at = steps.length - 1
     // Never a drive by itself, which is that drive's current folder.
     for (; at > 1; at--) {
