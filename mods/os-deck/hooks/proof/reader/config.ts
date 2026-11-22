@@ -1,6 +1,6 @@
 // What of a repository configures the two runners understood: shown whole, and only where every line
 // of it is known to leave what runs alone.
-import { joined, pathId } from '../watched'
+import { joined, keyOf } from '../watched'
 import { NPMRC_HARMLESS } from './known'
 import { Unshown, chainOf, refuse } from './reading'
 import type { Reading } from './reading'
@@ -11,10 +11,10 @@ async function showConfig(r: Reading, path: string): Promise<string | null> {
   if (read.kind === 'problem') throw new Unshown(`${path} cannot be watched: ${read.why}`)
   if (read.kind !== 'file') return null
   const body = textOf(read.bytes)
-  if (!r.found.files.has(pathId(r.root, path))) {
+  if (!r.found.files.has(keyOf(path))) {
     const bad = fileProblem(body)
     if (bad) throw new Unshown(`${path} ${bad}`)
-    r.found.files.set(pathId(r.root, path), { path, body })
+    r.found.files.set(keyOf(path), { path, body })
   }
   return body
 }

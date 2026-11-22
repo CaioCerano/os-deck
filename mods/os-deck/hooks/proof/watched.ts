@@ -24,8 +24,6 @@ const MAX_BYTES = 4 * 1024 * 1024 - 1
 
 /** A name as it is matched: programs load `Package.json` for `package.json` where the disk folds case. */
 export const keyOf = foldCase
-/** A path as one file of a root's: case makes one file of two on Windows alone. */
-export const pathId = (root: string, path: string) => (/^[A-Za-z]:/.test(root) ? keyOf(path) : path)
 export const joined = (dir: string, name: string) => (dir && name ? `${dir}/${name}` : dir || name)
 
 /** A step Windows would open as another name, or that is no name. */
@@ -211,7 +209,7 @@ export function openDisk($: EngineInterface, root: string): Disk {
       return 'entry' in found && found.entry.kind === 'dir' ? entriesOf(found.at) : null
     },
     file(path) {
-      const key = pathId(root, path)
+      const key = keyOf(path)
       const known = files.get(key)
       if (known) return known
       const read = readFile(path)
