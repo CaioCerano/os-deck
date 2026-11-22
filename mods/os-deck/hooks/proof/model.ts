@@ -60,7 +60,7 @@ export type Lifecycle = {
 export type Draft = {
   root: string
   checks: ProofCheck[]
-  /** The digest of these checks: what a press is bound to. */
+  /** The offer's digest (checks, baselines, script bodies): what a press is bound to. */
   digest: string
   /** Package script bodies behind the checks, pre and post hooks included, exactly as written. */
   scripts: { checkId: string; name: string; body: string }[]
