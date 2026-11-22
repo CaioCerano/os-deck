@@ -325,6 +325,49 @@ export type ProofClaim = {
 /** A person's press, bound to the revisions that were drawn. */
 export type ProofReview = { claim: string; revisions: { root: string; revision: string }[]; at: number }
 
+/**
+ * Agent Proof's session state, and the only evidence: nothing read from the store is put here except
+ * `past`, which is lines of history.
+ */
+export type ProofSession = {
+  session: string
+  allowed: { grant: ProofGrant; watched: [path: string, hash: string | null][] }[]
+  claims: ProofClaim[]
+  /** In the order they were recorded. */
+  attempts: ProofAttempt[]
+  reviews: ProofReview[]
+  past: { root: string; at: number; label: string }[]
+  paused: { root: string; paths: string[] }[]
+  openClaim: string | null
+  draft: {
+    root: string
+    checks: ProofCheck[]
+    digest: string
+    scripts: { checkId: string; name: string; body: string }[]
+    problem: string | null
+    source: 'detected' | 'saved' | 'typed'
+  } | null
+  notSaved: boolean
+}
+
+/** What Agent Proof works from between a task's start and its end: whole listings, so kept apart. */
+export type ProofWork = {
+  tracking: {
+    open: {
+      taskId: string
+      at: number
+      start: { root: string; revision: string; files: [path: string, hash: string][] }[]
+      unread: string[]
+      edits: string[]
+      overlap: string[]
+    }[]
+    descriptions: [taskId: string, text: string][]
+  }
+  seen: { root: string; revision: string | null; files: [path: string, hash: string][]; at: number; reason: string | null }[]
+  /** The last main turn ended with an answer, and none has started since. */
+  turnEnded: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'os-deck': {
@@ -344,6 +387,8 @@ declare module 'claude-code' {
       git: Git
       github: Github
       account: Account
+      proof: ProofSession
+      proofWork: ProofWork
     }
   }
 }

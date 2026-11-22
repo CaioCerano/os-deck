@@ -119,6 +119,10 @@ import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './githu
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
 import { flushHistory, historyReport, inTurn, loadHistory, pruneHistory, recordDay, sessionKeysIn } from './history'
 import { gitRead, readRepoState } from './safe-git'
+import { proofCommand, proofSessionEnded, proofSessionStarted, proofTaskChanged, proofToolRan, proofTurnEnded, proofTurnStarted } from './proof/controller'
+import { EMPTY_PROOF, EMPTY_WORK, proofOf, workOf } from './proof/state'
+import type { ProofOps } from './proof/state'
+
 import type { Config, Panel } from './core'
 
 const PANE = 'flightdeck'
@@ -149,6 +153,8 @@ const plan = atom({ plugin: 'os-deck', key: 'plan' } as const, DEFAULT_PLAN)
 const git = atom({ plugin: 'os-deck', key: 'git' } as const, DEFAULT_GIT)
 const github = atom({ plugin: 'os-deck', key: 'github' } as const, DEFAULT_GITHUB)
 const account = atom({ plugin: 'os-deck', key: 'account' } as const, DEFAULT_ACCOUNT)
+const proof = atom({ plugin: 'os-deck', key: 'proof' } as const, EMPTY_PROOF)
+const proofWork = atom({ plugin: 'os-deck', key: 'proofWork' } as const, EMPTY_WORK)
 // The skins mod's own state, read (never written) so the pane wears the skin the transcript does.
 const skinPrefs = { plugin: 'skins', key: 'prefs' } as const
 const skinCustom = { plugin: 'skins', key: 'custom' } as const
@@ -816,6 +822,16 @@ async function openPane($: EngineInterface) {
   return $.ui.open({ id: PANE, title: TITLE, columns: PANE_COLUMNS, rows: 8 })
 }
 
+/** Agent Proof's state calls: the atoms can be declared only here. */
+function proofOps($: EngineInterface): ProofOps {
+  return {
+    proof: async () => proofOf(await read($, proof)),
+    setProof: async fn => void (await update($, proof, x => fn(proofOf(x)))),
+    work: async () => workOf(await read($, proofWork)),
+    setWork: async fn => void (await update($, proofWork, x => fn(workOf(x)))),
+  }
+}
+
 async function resetAll($: EngineInterface) {
   await update($, main, m => ({ ...DEFAULT_MAIN, model: normalize(DEFAULT_MAIN, m).model, mode: normalize(DEFAULT_MAIN, m).mode }))
   await update($, architect, () => DEFAULT_ARCHITECT)
@@ -862,9 +878,10 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name,
         description: 'OS-Deck, the live agent dashboard: open, close, reset, or set the layout',
-        argumentHint: '[open|close|reset|demo|epic|pet|today|history|github|account [n|email|next]|hide <section>|show <section>|sections|layout auto|compact|wide|mini]',
+        argumentHint: '[open|close|reset|demo|epic|pet|today|history|github|proof [setup|check|run|history]|account [n|email|next]|hide <section>|show <section>|sections|layout auto|compact|wide|mini]',
       })
     await migrate($)
+    await quietly($, 'proof start', () => proofSessionStarted($, proofOps($)))
     void pruneHistory($, await $.clock.now())
     // One timer per load: a reload runs session.start again, and a timer an older load left behind
     // finds its generation stale and does nothing.
@@ -939,6 +956,7 @@ export const register: Register = (on, options) => {
       stopAccountTimers()
       stopAlerts()
     }
+    await quietly($, 'proof end', () => proofSessionEnded(proofOps($), e.reason === 'clear'))
     // What was asked to be saved is saved before the session goes.
     await flushHistory()
     if (e.reason === 'clear') {
@@ -966,6 +984,11 @@ export const register: Register = (on, options) => {
       await loadPlanHistory($, await $.session.id().catch(() => '')).catch(() => undefined)
       await refreshStatus($, cfg)
       return { text: 'OS-Deck reset.' }
+    }
+    if (verb === 'proof') {
+      const text = await proofCommand($, proofOps($), e.args.trim().slice(verb.length), e.origin.kind === 'composer')
+      void openPane($).catch(() => undefined)
+      return { text }
     }
     if (verb === 'demo') {
       const now = await $.clock.now()
@@ -1066,6 +1089,7 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     // A subagent's run is not the main loop's turn: it must not restart the turn or mark main running.
     if (e.agentId !== undefined) return next(e)
+    await quietly($, 'proof turn', () => proofTurnStarted(proofOps($)))
     const [now, cost] = await Promise.all([$.clock.now(), costNow($)])
     await update($, turn, () => ({ ...DEFAULT_TURN, startedAt: now, costAtStart: cost }))
     await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: true }))
@@ -1231,6 +1255,12 @@ export const register: Register = (on, options) => {
           const input = e as unknown as Record<string, unknown>
           const now = await $.clock.now()
           const { before, after } = await notePlan($, e.tool, input, ran.result, now)
+          if (e.tool === 'TaskUpdate' || e.tool === 'TaskCreate') {
+            const made = e.tool === 'TaskCreate' ? after.tasks.find(x => !before.tasks.some(y => y.id === x.id))?.id : input.taskId
+            const description = typeof input.description === 'string' ? input.description : null
+            if (typeof made === 'string')
+              await quietly($, 'proof task', () => proofTaskChanged($, proofOps($), { before, after, taskId: made, agentId: e.agentId ?? null, description }))
+          }
           if (e.tool === 'TaskUpdate') await afterPlanChange($, before, after, input, e.agentId, now).catch(err => say($, 'flightdeck', `plan update failed: ${String(err)}`, 'error'))
           if (e.tool === 'TaskUpdate' && input.status === 'completed') void recordDay($, now, { tasks: 1 })
         }
@@ -1242,6 +1272,13 @@ export const register: Register = (on, options) => {
         return
       }
       const hasFailed = didRun && ran.isError === true
+      if (didRun) {
+        const input = e as unknown as { file_path?: unknown; notebook_path?: unknown }
+        const path = EDIT_TOOLS.has(e.tool) ? (input.file_path ?? input.notebook_path) : null
+        // A failed shell call can have changed files too, and an MCP tool writes as it likes.
+        if (EDIT_TOOLS.has(e.tool) || e.tool === 'Bash' || e.tool === 'PowerShell' || String(e.tool).startsWith('mcp__'))
+          await quietly($, 'proof tool', () => proofToolRan($, proofOps($), typeof path === 'string' && !hasFailed ? path : null))
+      }
       const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
       if (didRun && (isEdit || e.tool === 'Bash' || e.tool === 'PowerShell')) void pokeGit($, cfg, false)
       // A push or a gh pr command changes what the GitHub section shows: read it again now.
@@ -1344,6 +1381,7 @@ export const register: Register = (on, options) => {
     const done = await next(e)
     const id = e.agentId
     const now = await $.clock.now()
+    await quietly($, 'proof turn end', () => proofTurnEnded($, proofOps($), { isMain: !id, reason: e.reason }))
     if (!id) {
       const [t, cards, cost] = await Promise.all([getTurn($), getCards($), costNow($)])
       const r = receiptOf(t, {
