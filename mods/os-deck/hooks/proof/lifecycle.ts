@@ -7,6 +7,8 @@ import type { Lifecycle, OpenTask } from './model'
 import { changedPaths, isLocalPath, samePath } from './revision'
 
 const MAX_OPEN = 64
+/** With those waiting, which hold no baseline. */
+const MAX_HELD = 512
 /** Of all baselines together: each is a whole listing of a repository, kept in session state. */
 const MAX_BASELINE_FILES = 100_000
 /** Past this a claim keeps some of its paths, to run and to show, and cannot verify. */
@@ -82,7 +84,7 @@ export const startTask: Lifecycle['startTask'] = (t, x) => {
   const open = t.open.find(o => o.taskId === x.taskId)
   if (open && !open.waiting) return t
   const others = t.open.filter(o => o !== open)
-  const isTracked = x.taskId !== UNTRACKED && x.taskId.length <= MAX_ID && others.length < MAX_OPEN
+  const isTracked = x.taskId !== UNTRACKED && x.taskId.length <= MAX_ID && others.filter(o => !o.waiting).length < MAX_OPEN && others.length < MAX_HELD
   const taskId = isTracked ? x.taskId : UNTRACKED
   if (others.some(o => o.taskId === taskId)) return t
 

@@ -1,5 +1,6 @@
 // What could be checked, and what a person is shown before allowing it. Read only: this runs before
-// anyone allowed anything, so it starts no process, git included, and follows no link. A check is
+// anyone allowed anything, so it starts no process, git included, and follows no link but,
+// off Windows, a program's in node_modules/.bin. A check is
 // suggested only where a file evidences it. What a command starts is understood or it is refused:
 // nothing is shown in part, and all that is shown is parsed from the bytes that are watched.
 import type { EngineInterface } from 'claude-code'

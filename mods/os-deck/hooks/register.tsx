@@ -1275,7 +1275,6 @@ export const register: Register = (on, options) => {
       const hasFailed = didRun && ran.isError === true
       if (didRun)
         await quietly($, 'proof tool', () => proofToolDone($, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, hasFailed, agentId: e.agentId ?? null }))
-      proofEditSettled(e.tool_use_id)
       const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
       if (didRun && (isEdit || e.tool === 'Bash' || e.tool === 'PowerShell')) void pokeGit($, cfg, false)
       // A push or a gh pr command changes what the GitHub section shows: read it again now.
@@ -1302,6 +1301,8 @@ export const register: Register = (on, options) => {
       else if (isEdit) await say($, await whoIs($, e.agentId), text, 'info', e.agentId ?? null)
       if (isSettled || !didRun) await refreshStatus($, cfg)
     })
+    // On every path, the early returns and what was caught above included.
+    proofEditSettled(e.tool_use_id)
     return ran
   })
 

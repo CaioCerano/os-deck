@@ -163,7 +163,10 @@ export function openDisk($: EngineInterface, root: string): Disk {
       if (key !== name && !key.startsWith(`${name}.`)) continue
       const at = folder.at.endsWith('/') ? `${folder.at}${entry.name}` : joined(folder.at, entry.name)
       if (entry.isLink) {
-        // npm installs these as links off Windows: where one leads, and the bytes there, are what it is.
+        // npm installs links only off Windows. On it none is followed: this runs before any press, and one
+        // can lead to a share, which takes the person's login.
+        if (onWindows) return problem('it is a link')
+        // Where one leads, and the bytes there, are what it is.
         const to = await $.fs.stat(placeOf(at), { resolve: true })
         const { realPath } = to
         if (!realPath || /^[\\/]{2}/.test(realPath) || to.kind !== 'file') return problem('where its link leads cannot be told')

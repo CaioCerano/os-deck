@@ -69,10 +69,12 @@ test('A3: a program planted under any extension is a change', async () => {
 })
 
 test('a program that is a link, as npm installs off Windows, is bound by where it leads', async () => {
-  const at = `${ROOT}/node_modules/.bin/tsc`
-  const d = await draft(repo(), check(), { [at]: `${ROOT}/node_modules/typescript/bin/tsc` })
+  const top = '/work/repo'
+  const at = `${top}/node_modules/.bin/tsc`
+  const held = { [`${top}/package.json`]: pkg('tsc --noEmit') }
+  const d = await draftFor(disk(held, { [at]: `${top}/node_modules/typescript/bin/tsc` }), top, [check()], 'detected')
   expect(d.problem).toBe(null)
-  expect((await changedOnDisk(disk(repo(), { [at]: 'C:/elsewhere/tsc' }), ROOT, d.watched)).length).toBe(1)
+  expect((await changedOnDisk(disk(held, { [at]: '/elsewhere/tsc' }), top, d.watched)).length).toBe(1)
 })
 
 test('A4: only ASCII case is folded', async () => {
@@ -119,9 +121,21 @@ test('a file named like the pattern itself does not recurse', async () => {
 })
 
 test('a linked program is bound by the bytes it leads to', async () => {
-  const at = `${ROOT}/node_modules/.bin/tsc`
-  const to = `${ROOT}/tools/tsc`
-  const d = await draft(repo({ [to]: 'one' }), check(), { [at]: to })
+  const top = '/work/repo'
+  const at = `${top}/node_modules/.bin/tsc`
+  const to = `${top}/tools/tsc`
+  const holding = (text: string) => disk({ [`${top}/package.json`]: pkg('tsc --noEmit'), [to]: text }, { [at]: to })
+  const d = await draftFor(holding('one'), top, [check()], 'detected')
   expect(d.problem).toBe(null)
-  expect((await changedOnDisk(disk(repo({ [to]: 'two' }), { [at]: to }), ROOT, d.watched)).length).toBe(1)
+  expect((await changedOnDisk(holding('two'), top, d.watched)).length).toBe(1)
+})
+
+test('C3: on Windows no link is followed before a press: it could lead to a share', async () => {
+  const at = `${ROOT}/node_modules/.bin/tsc`
+  const $ = disk(repo(), { [at]: 'C:/anywhere/tsc' })
+  const followed: string[] = []
+  const { stat } = $.fs
+  ;($ as unknown as { fs: { stat: unknown } }).fs.stat = (...args: Parameters<typeof stat>) => (followed.push(String(args[0])), stat(...args))
+  expect((await draftFor($, ROOT, [check()], 'detected')).problem).toContain('it is a link')
+  expect(followed).toEqual([])
 })

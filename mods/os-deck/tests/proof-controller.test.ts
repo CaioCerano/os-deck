@@ -25,6 +25,8 @@ const world = (ROOT = '/repo') => {
     watching: 0,
     hold: null as Promise<void> | null,
     ignored: [] as string[],
+    missing: [] as string[],
+    dangling: [] as string[],
     links: {} as Record<string, string>,
     output: ' 3 pass\n 0 fail\nRan 3 tests across 1 file.\n',
     code: 0,
@@ -77,12 +79,16 @@ const world = (ROOT = '/repo') => {
     },
     fs: {
       list: async (path: string) =>
+        w.dangling.some(x => x.slice(0, x.lastIndexOf('/')) === path) ? w.dangling.map(x => ({ name: x.slice(x.lastIndexOf('/') + 1), kind: 'other', size: 0, isLink: true })) :
         path.toLowerCase() === ROOT.toLowerCase() ? [{ name: '.git', kind: 'dir', size: 0, isLink: false }, ...Object.keys(files).map(name => ({ name, kind: 'file', size: files[name]!.length, isLink: false }))] : [],
       read: async (path: string, options?: { as?: string }) => {
         const text = files[path.slice(ROOT.length + 1)] ?? ''
         return options?.as === 'bytes' ? { base64: btoa(String.fromCharCode(...new TextEncoder().encode(text))) } : text
       },
-      stat: async (path: string) => ({ kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: w.links[path] ?? path }),
+      stat: async (path: string) => {
+        if (w.missing.includes(path)) throw new Error('ENOENT')
+        return { kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: w.links[path] ?? path }
+      },
     },
     process: {
       run,
@@ -1105,4 +1111,56 @@ for (const how of ['cancelled', 'failed'] as const)
     await endTurn()
     expect(w.spawned.length).toBe(1)
     if (how === 'failed') expect((await view()).roots[0]?.verdict.state).toBe('failed')
+  })
+
+// ---------------------------------------------------------------- what the fifth attack got past
+
+for (const [whose, agentId, path] of [['an outside', null, '/elsewhere/x.ts'], ['another agent’s', 'agent-other', '/repo/a.ts']] as const)
+  test(`S1: ${whose} edit under way as a task goes back to pending is kept`, async () => {
+    const { w, allow, task, endTurn, accept, view } = world()
+    await allow()
+    await task('1', 'in_progress')
+    const id = `waits-${w.session}`
+    proof.proofEditStarted(id, { tool: 'Write', input: { file_path: path }, agentId })
+    await task('1', 'pending')
+    proof.proofEditSettled(id)
+    await pause(20)
+    await task('1', 'in_progress')
+    w.files['a.ts'] = 'two'
+    await task('1', 'completed')
+    await endTurn()
+    await accept()
+    expect((await view()).tasks[0]?.verdict.state).toBe('inconclusive')
+  })
+
+test('S2: a review of no change covers no repository allowed after it', async () => {
+  const { w, $, ops, allow, task, view } = world()
+  await allow()
+  await task('1', 'in_progress')
+  await task('1', 'completed')
+  const empty = (await view()).tasks[0]!
+  await proof.pressReview($, ops, empty.claim.id, empty.drawn)
+  expect((await view()).tasks[0]?.isReviewed).toBe(true)
+  const here = w.p.allowed[0]!
+  w.p = { ...w.p, allowed: [here, { ...here, grant: { ...here.grant, root: '/second' } }] }
+  expect((await view()).tasks[0]?.isReviewed).toBe(false)
+})
+
+for (const how of ['a link, then folders not made yet', 'a link that leads nowhere yet'] as const)
+  test(`S3: an edit in flight through ${how} is outside`, async () => {
+    const { w, allow, task } = world()
+    await allow()
+    await task('1', 'in_progress')
+    const file = `${ROOT}/linked/new/deeper/x.ts`
+    w.missing = [file, `${ROOT}/linked/new/deeper`, `${ROOT}/linked/new`]
+    if (how === 'a link that leads nowhere yet') {
+      w.missing.push(`${ROOT}/linked`)
+      w.dangling = [`${ROOT}/linked`]
+    } else w.links[`${ROOT}/linked`] = '/elsewhere'
+    const id = `link-${w.session}`
+    proof.proofEditStarted(id, { tool: 'Write', input: { file_path: file }, agentId: null })
+    w.files['a.ts'] = 'two'
+    await task('1', 'completed')
+    proof.proofEditSettled(id)
+    expect(w.p.claims[0]?.outside.length).toBe(1)
   })

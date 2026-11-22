@@ -68,11 +68,13 @@ export const presentProof = (p: ProofSession, w: ProofWork, live: LiveRuns, log:
     const own = claim.changes.filter(c => c.paths.length > 0).map(c => c.root)
     // With no baseline its changes could be in any, so a review has to be of each.
     const shown = own.length > 0 && claim.hasBaseline ? own : roots.map(r => r.root)
+    const review = p.reviews.filter(r => r.claim === claim.id).pop()
     const runs = [...p.past, ...p.attempts.map(a => ({ root: a.root, at: a.startedAt, label: pastLabel(a) }))]
     return {
       claim,
       verdict: taskVerdict(claim, at, p.session),
-      isReviewed: isReviewed(claim, p.reviews.filter(r => r.claim === claim.id).pop(), current),
+      // Of every repository listed for it now: one allowed since was never put before anyone.
+      isReviewed: isReviewed(claim, review, current) && shown.every(root => review?.revisions.some(x => x.root === root) === true),
       drawn: shown.map(root => ({ root, revision: current.get(root) ?? '' })),
       reviewWorthy: reviewWorthy(claim.changes.flatMap(c => c.paths.map(x => x.path))),
       earlier: runs.filter(x => shown.includes(x.root)).sort((a, b) => b.at - a.at).slice(0, 5).map(({ at: ran, label }) => ({ at: ran, label })),

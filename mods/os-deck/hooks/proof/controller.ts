@@ -11,6 +11,7 @@ import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
 import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, waitTask, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofActions, ProofViewModel } from './model'
+import { foldCase } from './names'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
 import { cancelSignal } from './runner'
@@ -172,7 +173,11 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     }
     if (was?.status === is.status) return
     // Back to waiting: what is done until it starts again is not its work.
-    if (is.status === 'pending') await ops.setWork(w => (w.session === session ? { ...w, tracking: waitTask(w.tracking, x.taskId) } : w))
+    if (is.status === 'pending') {
+      // What is under way was begun while it worked.
+      await noteEditing($, ops, session, p.allowed.map(a => a.grant.root))
+      await ops.setWork(w => (w.session === session ? { ...w, tracking: waitTask(w.tracking, x.taskId) } : w))
+    }
     const roots = p.allowed.map(a => a.grant.root)
     if (is.status !== 'in_progress' && is.status !== 'completed') return
 
@@ -185,10 +190,7 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
       await ops.setWork(w => (w.session === session ? { ...w, tracking: startTask(w.tracking, { taskId: x.taskId, at, start: manifests, unread }) } : w))
       return
     }
-    for (const { path, editor } of [...editing.values()]) {
-      const landed = await landedAt($, roots, isLocalPath(path) ? path : `${await $.session.cwd()}/${path}`)
-      await ops.setWork(w => (w.session === session ? { ...w, tracking: noteEdit(w.tracking, landed, editor) } : w))
-    }
+    await noteEditing($, ops, session, roots)
     const claims = (await ops.proof()).claims
     const { tracking } = await ops.work()
     const done = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, group: is.group, agentId: x.agentId, helpers: is.agents, at, end: manifests, unread, roots, claims })
@@ -215,16 +217,33 @@ async function stillThere($: EngineInterface, claim: ProofClaim): Promise<boolea
   return false
 }
 
+/** The file tools' calls under way, noted on the tasks open now. */
+async function noteEditing($: EngineInterface, ops: ProofOps, session: string, roots: readonly string[]): Promise<void> {
+  for (const { path, editor } of [...editing.values()]) {
+    const landed = await landedAt($, roots, isLocalPath(path) ? path : `${await $.session.cwd()}/${path}`)
+    await ops.setWork(w => (w.session === session ? { ...w, tracking: noteEdit(w.tracking, landed, editor) } : w))
+  }
+}
+
 /** Where an edit landed, links followed, spelled from the allowed root it landed in. */
 async function landedAt($: EngineInterface, roots: readonly string[], path: string): Promise<string> {
   const resolved = async (of: string) => (await $.fs.stat(of, { resolve: true }).catch(() => null))?.realPath?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null
   let real = await resolved(path)
   if (!real) {
-    // Not there yet: where its folder leads is where it will land.
-    const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
-    const folder = cut > 0 ? await resolved(path.slice(0, cut)) : null
-    if (!folder) return path
-    real = `${folder}/${path.slice(cut + 1)}`
+    // Not there yet: where the nearest folder that is leads is where it will land.
+    const steps = path.replace(/\\/g, '/').split('/')
+    let at = steps.length - 1
+    // Never a drive by itself, which is that drive's current folder.
+    for (; at > 1; at--) {
+      const folder = await resolved(steps.slice(0, at).join('/'))
+      if (!folder) continue
+      const listed = await $.fs.list(steps.slice(0, at).join('/')).catch(() => [])
+      // A link with nothing behind it yet can lead anywhere: no path, so inside no root.
+      if (listed.some(x => x.isLink && foldCase(x.name) === foldCase(steps[at] as string))) return `unresolved link: ${path}`
+      real = `${folder}/${steps.slice(at).join('/')}`
+      break
+    }
+    if (!real) return path
   }
   for (const root of roots) {
     const top = await resolved(root)

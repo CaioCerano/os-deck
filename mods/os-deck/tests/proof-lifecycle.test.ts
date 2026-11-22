@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { completeTask, describeTask, dropTask, noteEdit, reviewWorthy, rootsToRun, startTask, withdrawClaims } from '../hooks/proof/lifecycle'
+import { completeTask, describeTask, dropTask, noteEdit, reviewWorthy, rootsToRun, startTask, waitTask, withdrawClaims } from '../hooks/proof/lifecycle'
 import type { Manifest, Tracking } from '../hooks/proof/model'
 import { isReviewed, rootVerdict, taskVerdict } from '../hooks/proof/verdict'
 import type { RootNow, RootVerdict, Verdict } from '../hooks/proof/verdict'
@@ -1203,3 +1203,11 @@ const againstOracle = (firstSeed: number, count: number, clockSteps: boolean) =>
 // In parts, each well inside the time a test may take.
 for (const part of [0, 1, 2, 3]) test(`random sequences, part ${part + 1}: verified and runs exactly where the oracle allows`, () => againstOracle(part * 500 + 1, 500, false))
 for (const part of [0, 1]) test(`random sequences with a stepping clock, part ${part + 1}: no false green, no loop`, () => againstOracle(part * 500 + 1, 500, true))
+
+test('C1: tasks left waiting take no room from the tasks at work', () => {
+  let t: Tracking = { open: [], descriptions: [] }
+  for (let i = 0; i < 80; i++) t = waitTask(startTask(t, { taskId: `W${i}`, at: i, start: [], unread: [] }), `W${i}`)
+  t = startTask(t, { taskId: 'now', at: 100, start: [], unread: [] })
+  expect(t.open[t.open.length - 1]?.taskId).toBe('now')
+  expect(t.open[t.open.length - 1]?.overlap).toEqual([])
+})
