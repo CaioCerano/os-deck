@@ -214,3 +214,9 @@ test('the files behind a check are watched', () => {
   const files = new Map(['package.json', 'app/package.json', 'tests/run_all.sh', 'src/x.ts'].map(p => [p, 'h']))
   expect(watchedPaths([check({ argv: ['bash', './tests/run_all.sh'] }), check({ id: 'lint', dir: 'app', argv: ['npm', 'run', 'lint'] })], files)).toEqual(expect.arrayContaining(['app/package.json', 'package.json', 'tests/run_all.sh']))
 })
+
+test('a child does not look for programs in the repository it runs in', async () => {
+  const { spawned } = await run()
+  // A .cmd shim on PATH asks cmd, which looks in the current folder first unless told not to.
+  expect(spawned[0]?.env.NoDefaultCurrentDirectoryInExePath).toBe('1')
+})

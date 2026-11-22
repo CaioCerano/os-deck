@@ -18,6 +18,12 @@ export const BLANKED_ENV: Readonly<Record<string, string>> = Object.fromEntries(
   ].map(name => [name, '']),
 )
 
+/**
+ * Windows: cmd, which every .cmd shim is, looks for a program in the current folder first, and that
+ * folder is the repository. Claude Code sets this today; it is not relied on to.
+ */
+const FROM_PATH_ONLY = { NoDefaultCurrentDirectoryInExePath: '1' }
+
 const KEPT = 16_000
 const TAIL = 4_000
 const MAX_LINE = 4_000
@@ -181,7 +187,7 @@ export async function runCheck($: EngineInterface, root: string, check: ProofChe
       why = why ?? reason
       wake()
     }
-    const child = $.process.spawn({ argv: [...check.argv], cwd, env: { ...BLANKED_ENV } })
+    const child = $.process.spawn({ argv: [...check.argv], cwd, env: { ...BLANKED_ENV, ...FROM_PATH_ONLY } })
     const timer = $.clock.after(check.timeoutS * 1000, () => stop('timed-out'))
     signal.onCancel(() => stop('cancelled'))
     const nextPiece = () =>
