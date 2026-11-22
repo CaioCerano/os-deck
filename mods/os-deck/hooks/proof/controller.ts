@@ -15,7 +15,7 @@ import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
 import { cancelSignal } from './runner'
 import type { CancelSignal } from './runner'
-import { detectChecks, draftFor, parseTypedCheck } from './setup'
+import { detectOffer, draftFor, parseTypedCheck } from './setup'
 import { withoutMarks } from './showable'
 import { EMPTY_PROOF, EMPTY_WORK } from './state'
 import type { ProofOps } from './state'
@@ -474,24 +474,27 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
   const records = await loadRecords($, root)
   const granted = p.allowed.find(a => samePath(a.grant.root, root))?.grant.checks
   let checks: ProofCheck[]
+  let leftOut: string[] = []
   let source: 'detected' | 'saved' | 'typed'
   if (typed) {
     const one = typed
-    const base = p.draft?.root === root ? p.draft.checks : (granted ?? [])
+    // Added to what could be allowed, never to a draft that could not.
+    const base = p.draft?.root === root && !p.draft.problem ? p.draft.checks : (granted ?? [])
     checks = [...base.filter(c => c.id !== one.id), one]
     source = 'typed'
   } else if (granted || records.checks.length > 0) {
     checks = granted ?? records.checks
     source = 'saved'
   } else {
-    checks = await detectChecks($, root)
+    ;({ checks, leftOut } = await detectOffer($, root))
     source = 'detected'
   }
   if (checks.length === 0) return 'OS-Deck proof: no test, typecheck, lint or build found here. /os-deck proof check <kind> -- <command> names one.'
   const draft = await draftFor($, root, checks, source)
   const past = records.attempts.slice(-20).map(a => ({ root, at: a.startedAt, label: pastLabel(a) }))
   await ops.setProof(s => (s.session === session ? { ...s, draft, past: [...s.past.filter(x => x.root !== root), ...past] } : s))
-  return `OS-Deck proof: ${checks.length} check${checks.length === 1 ? '' : 's'} shown in the dock. Nothing has run; press allow there to let them.`
+  const others = leftOut.length > 0 ? `\n${leftOut.map(why => `left out: ${redact(why)}`).join('\n')}` : ''
+  return `OS-Deck proof: ${checks.length} check${checks.length === 1 ? '' : 's'} shown in the dock. Nothing has run; press allow there to let them.${others}`
 }
 
 // ---------------------------------------------------------------- presses

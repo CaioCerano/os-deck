@@ -661,3 +661,29 @@ test('review 11: what was claimed and reviewed is in the history shown', async (
   expect(said).toContain('claimed "task 1" · reviewed')
   expect(w.spawned).toEqual([])
 })
+
+test('N13: detection offers what can be allowed and says what it left out', async () => {
+  const { w, $, ops } = world()
+  w.files['package.json'] = JSON.stringify({ scripts: { lint: 'turbo lint', typecheck: 'tsc --noEmit' } })
+  const said = await proof.proofCommand($, ops, 'setup', true)
+  expect(w.p.draft?.checks.map(c => c.id)).toEqual(['typecheck'])
+  expect(w.p.draft?.problem).toBe(null)
+  expect(said).toContain('left out')
+  expect(said).toContain('turbo')
+})
+
+test('N13: a typed check does not inherit the problem of the draft before it', async () => {
+  const { w, $, ops } = world()
+  await proof.proofCommand($, ops, 'check lint -- turbo lint', true)
+  expect(w.p.draft?.problem).toBeTruthy()
+  await proof.proofCommand($, ops, 'check typecheck -- tsc --noEmit', true)
+  expect(w.p.draft?.problem).toBe(null)
+})
+
+test('N14: tests that cannot be counted are not made required by detection', async () => {
+  const { w, $, ops } = world()
+  w.files['package.json'] = JSON.stringify({ scripts: { test: 'jest', typecheck: 'tsc --noEmit' } })
+  const said = await proof.proofCommand($, ops, 'setup', true)
+  expect(w.p.draft?.checks.map(c => c.id)).toEqual(['typecheck'])
+  expect(said).toContain('no way to count its tests')
+})

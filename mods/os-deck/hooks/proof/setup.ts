@@ -109,6 +109,27 @@ export async function detectChecks($: EngineInterface, root: string): Promise<Pr
   }
 }
 
+/**
+ * What detection puts before a person: the checks that could be allowed and could verify, and why each
+ * other was left out, so one of those does not block the rest. With none such, all of them, for setup
+ * to say why.
+ */
+export async function detectOffer($: EngineInterface, root: string): Promise<{ checks: ProofCheck[]; leftOut: string[] }> {
+  const found = await detectChecks($, root)
+  const checks: ProofCheck[] = []
+  const leftOut: string[] = []
+  for (const check of found) {
+    if (check.kind === 'test' && !check.count) {
+      leftOut.push(`${check.id}: no way to count its tests`)
+      continue
+    }
+    const { problem } = await draftFor($, root, [check], 'detected')
+    if (problem) leftOut.push(problem)
+    else checks.push(check)
+  }
+  return checks.length > 0 ? { checks, leftOut } : { checks: found, leftOut: [] }
+}
+
 const USAGE = 'expected: <test|typecheck|lint|build> [--dir <folder>] -- <command>'
 
 /** The words typed: double quotes group, and nothing else means anything. */
