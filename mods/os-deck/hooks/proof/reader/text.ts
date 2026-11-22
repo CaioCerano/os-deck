@@ -1,6 +1,6 @@
 // What of a text or a file can be put before a person as it is, and what bytes hold.
 import { redact } from '../../redact'
-import { hasSecret } from '../showable'
+import { hasSecretInFile } from '../showable'
 
 const MAX_MANIFEST = 256 * 1024
 export const MAX_BODY = 1000
@@ -32,7 +32,7 @@ export const fileProblem = (body: string): string | null =>
     ? 'is too long to show whole'
     : hidesSomething(body.replace(/\r\n|[\n\t]/g, ' '))
       ? 'holds a character that does not show'
-      : hasSecret(body)
+      : hasSecretInFile(body)
         ? 'holds what looks like a secret'
         : null
 

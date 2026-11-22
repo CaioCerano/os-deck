@@ -51,7 +51,7 @@ const pressOn = (d: Draft, over: object = {}) =>
   grantFrom({ session: 'S', root: '/repo', checks: d.checks, scripts: d.scripts, watched: d.watched, files: d.files, manualOnly: d.manualOnly, drawnDigest: d.digest, at: 1, ...over })
 
 test('C4: a press is bound to the watched bytes that were drawn', async () => {
-  const d = await draftFor(fake('node x.js'), '/repo', [check], 'detected')
+  const d = await draftFor(fake('node x.js', [], 'process.exit(0)'), '/repo', [check], 'detected')
   expect((d.watched ?? []).length).toBeGreaterThan(0)
   expect('grant' in (await pressOn(d))).toBe(true)
   const first = d.watched[0] as [string, string | null]

@@ -103,12 +103,6 @@ test('tsconfig alone suggests nothing; beside a script, that script', async () =
   expect(await commands({ 'tsconfig.json': '{}', 'package.json': pkg({ typecheck: 'tsc' }) })).toEqual(['npm run typecheck'])
 })
 
-test('the package manager is the lockfile’s', async () => {
-  const cases: [string, string][] = [['package-lock.json', 'npm'], ['npm-shrinkwrap.json', 'npm'], ['pnpm-lock.yaml', 'pnpm'], ['yarn.lock', 'yarn'], ['bun.lock', 'bun'], ['bun.lockb', 'bun']]
-  for (const [lock, manager] of cases) expect(await commands({ [lock]: '', 'package.json': pkg({ lint: 'x' }) })).toEqual([`${manager} run lint`])
-  expect(await commands({ 'yarn.lock': '', 'package.json': pkg({ lint: 'x' }) }, { links: ['yarn.lock'] })).toEqual(['npm run lint'])
-})
-
 test('a plugin with tests, at the root and under mods', async () => {
   const found = await detect({ ...plugin(), ...plugin('mods/b/'), ...plugin('mods/a/'), 'mods/c/readme.md': '' })
   expect(found.map(c => [c.id, c.argv.join(' '), c.dir])).toEqual([
@@ -293,40 +287,6 @@ test('what is hashed is what is returned, though the caller changes theirs', asy
   expect('grant' in (await press(made))).toBe(true)
 })
 
-test('a script is shown with its hooks, exactly as written', async () => {
-  const body = 'eslint "src/**/*.ts"  --max-warnings 0 && echo done'
-  const made = await draftOf({ test: body, pretest: 'echo before', posttest: 'echo after', other: 'x' })
-  expect(made.problem).toBeNull()
-  expect(made.scripts).toEqual([
-    { checkId: 'test', name: 'pretest', body: 'echo before' },
-    { checkId: 'test', name: 'test', body },
-    { checkId: 'test', name: 'posttest', body: 'echo after' },
-  ])
-})
-
-test('scripts a script runs are followed, their hooks too', async () => {
-  const made = await draftOf({ test: 'npm run unit && yarn lint', unit: 'bun test', preunit: 'pnpm run gen', gen: 'node gen.js', lint: 'eslint', posttest: 'npm t' })
-  expect(made.problem).toBeNull()
-  expect(made.scripts.map(s => s.name).sort()).toEqual(['gen', 'lint', 'posttest', 'preunit', 'test', 'unit'])
-})
-
-test('every way a command names a script', async () => {
-  const ways = [
-    ['npm', 'test'], ['npm', 't'], ['npm', 'run-script', 'test'], ['npm', 'run', 'test', '--', '--watch'], ['npm', '--silent', 'test'],
-    ['pnpm', 'test'], ['yarn', 'test'], ['yarn', 'run', 'test'], ['bun', 'run', 'test'], ['node', '--run', 'test'], ['node', '--run=test'],
-    ['run-s', 'test'], ['corepack', 'pnpm', 'run', 'test'], ['bash', '-c', 'npm run test'], ['C:\\Program Files\\nodejs\\npm.cmd', 'run', 'test'],
-  ]
-  for (const argv of ways) expect([argv, (await draftOf({ test: 'jest' }, argv)).scripts.map(s => s.name)]).toEqual([argv, ['test']])
-})
-
-test('commands with no package script show none', async () => {
-  const ways = [['bun', 'test'], ['bun', 'run', 'build.ts'], ['npm', 'exec', 'tsc'], ['pnpm', 'exec', 'tsc'], ['yarn', 'tsc'], ['node', '--test'], ['node', 'a.js'], ['bash', 'tests/run_all.sh']]
-  for (const argv of ways) {
-    const made = await draftOf({ test: 'jest' }, argv)
-    expect([argv, made.problem, made.scripts]).toEqual([argv, null, []])
-  }
-})
-
 test('what it starts cannot be told: a problem', async () => {
   const ways = [
     ['npm', '--prefix', 'web', 'run', 'test'], ['npm', 'run', 'test', '--prefix=web'], ['npm', 'run', 'test', '-w', 'web'], ['npm', 'install'],
@@ -373,16 +333,6 @@ test('a check in a folder shows that folder’s scripts, never through a link', 
   expect([linked.problem, linked.scripts]).toEqual(['test: its folder is not there, cannot be read, or is a link', []])
 })
 
-test('loops end, depth and number are bounded', async () => {
-  const loop = await draftOf({ test: 'npm run b', b: 'npm run test' })
-  expect([loop.problem, loop.scripts.map(s => s.name)]).toEqual([null, ['test', 'b']])
-  const chain = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [i ? `s${i}` : 'test', i + 1 < n ? `npm run s${i + 1}` : 'true']))
-  expect((await draftOf(chain(5))).problem).toBeNull()
-  expect((await draftOf(chain(6))).problem).toBe('test: its scripts run one another too deep to show')
-  const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`w${i}`, 'true']))
-  expect((await draftOf({ test: `run-p ${Object.keys(wide).join(' ')}`, ...wide })).problem).toBe('test: it runs more scripts than can be shown')
-})
-
 test('names that every object has are only names', async () => {
   expect((await draftOf({ test: 'x' }, ['npm', 'run', 'constructor'])).problem).toBe('test: there is no script "constructor" to show')
   expect((await draft({ 'package.json': '{"scripts":{"__proto__":"shown"}}' }, [check({ argv: ['npm', 'run', '__proto__'] })])).scripts[0]?.body).toBe('shown')
@@ -403,16 +353,6 @@ test('a problem carries nothing that cannot be drawn', async () => {
 test('a draft of junk is a problem, never a throw', async () => {
   const made = await setup.draftFor(world({}).$, ROOT, [null] as unknown as ProofCheck[], 'saved')
   expect([made.problem, made.digest, made.source]).toEqual(['it could not be read', '', 'saved'])
-})
-
-test('what the screen would not draw whole is a problem of setup too', async () => {
-  // Each body is short enough alone; escaped, as they are drawn, the three are not.
-  const body = `jest ${chr(0x44f).repeat(900)}`
-  const long = await draftOf({ pretest: body, test: body, posttest: body })
-  expect(long.problem).toBe('too long to show whole')
-
-  const named = await setup.draftFor(world({ [`${SECRET}/a.test.ts`]: '' }).$, `${ROOT}/${SECRET}`, [check({ argv: ['bun', 'test'] })], 'detected')
-  expect(named.problem).toBe('what looks like a secret')
 })
 
 // ---------------------------------------------------------------- what runs is bound to what is read
@@ -450,50 +390,11 @@ test('C4: what is shown is parsed from the bytes that are hashed', async () => {
   expect(w.seen.reads.filter(path => path === '.npmrc').length).toBe(1)
 })
 
-test('H1: config of the runner is shown whole, and what it names is watched', async () => {
-  const cases: [string, string, string, string | null][] = [
-    ['npm run test', '.npmrc', 'audit=false\r\nnode-options=--require=./helper.cjs\r\n', 'helper.cjs'],
-    ['npm run test', '.npmrc', 'audit=false\n\tfund=false\n', null],
-    ['yarn run test', '.yarnrc.yml', 'yarnPath: .yarn/releases/yarn.cjs\n', '.yarn/releases/yarn.cjs'],
-    ['yarn run test', '.yarnrc.yml', 'plugins:\n  - path: .yarn/plugins/p.cjs\n', '.yarn/plugins/p.cjs'],
-    ['yarn run test', '.yarnrc', 'yarn-path "tools/yarn"\n', 'tools/yarn'],
-    ['bun test', 'bunfig.toml', '[test]\npreload = ["./pre.ts"]\n', 'pre.ts'],
-    ['pnpm run test', 'pnpm-workspace.yaml', 'packages:\n  - app\n', null],
-    ['bun run test', 'bunfig.toml', '[run]\nsilent = true\n', null],
-  ]
-  for (const [line, path, body, named] of cases) {
-    const d = await typedDraft(line, { 'package.json': pkg({ test: 'jest' }), [path]: body })
-    expect([line, d.problem]).toEqual([line, null])
-    expect(d.files).toEqual([{ path, body }])
-    expect(d.watched).toContainEqual([path, await sha(body)])
-    if (named) expect(watchOf(d)).toContain(named)
-  }
-})
-
 test('H1: config from the folder of the check up to the root', async () => {
   const d = await typedDraft('npm run test', { '.npmrc': 'audit=false', 'a/.npmrc': 'fund=false', 'a/b/package.json': pkg({ test: 'jest' }) }, 'a/b')
   expect(d.problem).toBeNull()
   expect(d.files.map(f => f.path).sort()).toEqual(['.npmrc', 'a/.npmrc'])
   expect(watchOf(d)).toContain('a/b/.npmrc')
-})
-
-test('H1: config that makes what is shown untrue is a problem', async () => {
-  const cases: [string, string, string][] = [
-    ['npm run test', '.npmrc', 'workspace=pkg\n'],
-    ['npm run test', '.npmrc', '  "workspace[]" = pkg\n'],
-    ['npm run test', '.npmrc', 'script-shell=evil.exe\n'],
-    ['npm run test', '.npmrc', 'SCRIPT_SHELL=evil.exe\n'],
-    ['npm run test', '.npmrc', 'prefix=web\n'],
-    ['npm run test', '.npmrc', 'node-options=--run quiet\n'],
-    ['npm run test', '.npmrc', 'node-options=${HIDDEN}\n'],
-    ['npm run test', '.npmrc', '${KEY}=pkg\n'],
-    ['pnpm run test', 'pnpm-workspace.yaml', 'scriptShell: ./other\n'],
-    ['pnpm run test', '.npmrc', 'verify-deps-before-run=install\n'],
-    ['yarn run test', '.yarnrc', '--cwd web\n'],
-    ['bun run test', '.env', 'NODE_OPTIONS=--require=./evil.js\n'],
-    ['yarn run test', '.env.yarn', 'export npm_config_prefix=web\n'],
-  ]
-  for (const [line, path, body] of cases) expect([body, (await typedDraft(line, { 'package.json': pkg({ test: 'jest' }), [path]: body })).problem?.includes(path) === true]).toEqual([body, true])
 })
 
 test('H1: config that cannot be shown is a problem, and is not shown', async () => {
@@ -510,152 +411,10 @@ test('H1: config that cannot be shown is a problem, and is not shown', async () 
   }
 })
 
-test('H1: an env file that only sets harmless values is watched, never shown', async () => {
-  const d = await typedDraft('bun test', { '.env': `API_TOKEN=${SECRET}\n` })
-  expect([d.problem, d.files]).toEqual([null, []])
-  expect(d.watched).toContainEqual(['.env', await sha(`API_TOKEN=${SECRET}\n`)])
-})
-
 test('H1: files shown are under the same limits as scripts', async () => {
   const line = `# ${'x'.repeat(100)}\n`
   const d = await typedDraft('npm run test', { '.npmrc': line.repeat(70), 'a/.npmrc': line.repeat(70), 'a/b/.npmrc': line.repeat(70), 'a/b/package.json': pkg({ test: 'jest' }) }, 'a/b')
   expect(d.problem).toBe('too long to show whole')
-})
-
-test('H2: a helper after a change of folder', async () => {
-  const d = await bodyIn('cd tools && node lint.js', { 'tools/lint.js': 'old' })
-  expect(d.problem).toBeNull()
-  expect(d.watched).toContainEqual(['tools/lint.js', await sha('old')])
-  expect(watchOf(d)).toContain('tools/.npmrc')
-})
-
-test('H2: a script of another folder, shown as that folder’s', async () => {
-  const d = await bodyIn('cd web && npm run lint', { 'web/package.json': pkg({ lint: 'node w.js' }) }, { lint: 'node root.js' })
-  expect(d.problem).toBeNull()
-  expect(d.scripts.map(s => [s.name, s.body])).toEqual([['test', 'cd web && npm run lint'], ['web: lint', 'node w.js']])
-  expect(watchOf(d)).toContain('web/w.js')
-})
-
-test('H2: a name without its extension, and a folder’s index', async () => {
-  const file = await bodyIn('node tools/lint', { 'tools/lint.js': 'old' })
-  expect(file.watched).toContainEqual(['tools/lint.js', await sha('old')])
-  for (const path of ['tools/lint', 'tools/lint.json', 'tools/lint/index.js', 'tools/lint/package.json']) expect(file.watched).toContainEqual([path, null])
-
-  const folder = await bodyIn('node tools/lint', { 'tools/lint/package.json': '{"main":"./entry"}', 'tools/lint/entry.js': 'old' })
-  expect(folder.watched).toContainEqual(['tools/lint/entry.js', await sha('old')])
-
-  const exact = await bodyIn('node ./tools\u002flint.js', { 'tools/lint.js': 'old' })
-  expect(exact.watched).toContainEqual(['tools/lint.js', await sha('old')])
-})
-
-test('H2: a plugin test’s manifests, however the folder is spelled', async () => {
-  for (const [arg, base] of [['.', ''], ['./', ''], ['mods/m', 'mods/m/'], ['mods/m/', 'mods/m/'], ['./mods/m', 'mods/m/'], ['mods\\m', 'mods/m/']] as const) {
-    const d = await typedDraft(`claude plugin test ${arg}`, { [`${base}.claude-plugin/plugin.json`]: '{}', [`${base}hooks/hooks.json`]: '{}' })
-    expect([arg, d.problem, d.manualOnly]).toEqual([arg, null, null])
-    expect(d.watched).toContainEqual([`${base}.claude-plugin/plugin.json`, await sha('{}')])
-    expect(d.watched).toContainEqual([`${base}hooks/hooks.json`, await sha('{}')])
-  }
-})
-
-test('H2: other runners: their manifest shown and watched, and manual only', async () => {
-  const cases: [string, string, string][] = [
-    ['just test', 'justfile', 'test:\n\ttrue\n'],
-    ['make test', 'Makefile', 'test:\n\ttrue\n'],
-    ['composer test', 'composer.json', '{}\n'],
-    ['deno task test', 'deno.json', '{}\n'],
-  ]
-  for (const [line, path, body] of cases) {
-    const d = await typedDraft(line, { [path]: body })
-    expect([line, d.problem]).toEqual([line, null])
-    expect(d.files.map(f => f.body)).toEqual([body])
-    expect(d.watched).toContainEqual([d.files[0]?.path, await sha(body)])
-    expect(d.manualOnly).toBe('test: what its recipes run is not known')
-  }
-  expect(watchOf(await typedDraft('yarn exec tsc'))).toContain('.yarnrc.yml')
-})
-
-test('H2: a file in the folder that would run in the program’s place', async () => {
-  const d = await bodyIn('jest', { '.gitignore': 'jest.cmd' })
-  for (const path of ['jest.cmd', 'jest.exe', 'jest.bat', 'jest.js', 'node.exe']) expect(d.watched).toContainEqual([path, null])
-})
-
-test('H2: what cannot be resolved is manual only, with its reason', async () => {
-  const cases: [string, string][] = [
-    ['cargo test', 'test: what cargo runs is not known'],
-    ['node ../outside.js', 'test: it runs a file outside the repository'],
-    ['claude plugin test ../elsewhere', 'test: it tests a plugin outside the repository'],
-    ['C:\\tools\\godot.exe --headless', 'test: what godot runs is not known'],
-  ]
-  for (const [line, why] of cases) {
-    const d = await typedDraft(line)
-    expect([line, d.problem, d.manualOnly]).toEqual([line, null, why])
-  }
-  expect((await bodyIn('APP_MODE=test jest')).manualOnly).toBe('test: what setting APP_MODE changes is not known')
-})
-
-test('H3: the reproductions', async () => {
-  const hidden = { quiet: 'node hidden.js' }
-  const node = await bodyIn('node --require ./ok.js --run quiet', {}, hidden)
-  expect(node.problem).toBeNull()
-  expect(node.scripts.map(s => s.name)).toEqual(['test', 'quiet'])
-  expect(watchOf(node)).toContain('ok.js')
-  expect(watchOf(node)).toContain('hidden.js')
-  for (const body of ['yarnpkg run quiet', 'np^m run quiet', 'concurrently npm:quiet']) expect(refused(body, await bodyIn(body, {}, hidden))).toEqual([body, true])
-})
-
-test('H3: what is not positively understood is a problem', async () => {
-  const bodies = [
-    'n\\pm run quiet', '"np"m run quiet', "'npm' run quiet", '$RUNNER run quiet', '%RUNNER% run quiet', '`echo npm` run quiet', '$(echo npm) run quiet', '@npm run quiet', 'npm. run quiet', 'npm,run,quiet',
-    'ni quiet', 'nr quiet', 'pnpx jest', 'turbo run quiet', 'wrapper npm run quiet', 'cross-env-shell "npm run quiet"', 'xargs npm run quiet', 'cmd /c npm run quiet', 'eval npm run quiet', '. ./env.sh', 'call npm run quiet',
-    'node -e "1"', 'node --eval=1', 'node --unknown-flag a.js', 'node --env-file=.env a.js', 'node', 'node - ', 'node < quiet.js', 'echo npm run quiet | sh', 'node node_modules/npm/bin/npm-cli.js run quiet', 'bash --rcfile x tests/a.sh',
-    'npm --loglevel silent run quiet', 'npm run quiet --prefix=web', 'pnpm --filter web run quiet', 'bun --cwd web run quiet', 'bun test --cwd web', 'run-s --npm-path evil quiet',
-    'NODE_OPTIONS=--require=./evil.js jest', 'PATH=evil jest', 'npm_config_prefix=web npm run quiet', 'cross-env NODE_OPTIONS=--import=$X jest', 'BASH_ENV=evil.sh bash tests/a.sh',
-    "echo 'a & npm run quiet'", 'echo # && npm run quiet', '(npm run quiet)', 'np? run quiet', 'node *.js', 'run-s {quiet,other}', 'eslint *', 'jest &',
-    'cd .. && node x.js', 'cd web && node x.js', 'cd /tmp && node x.js', 'cd src; node x.js', 'cd src || node x.js', 'cd -- src && node x.js', 'pushd src && node x.js', 'cd/d src && node x.js', 'claude -p fix',
-  ]
-  for (const body of bodies) expect(refused(body, await bodyIn(body, { 'src/x.js': '' }, { quiet: 'node hidden.js' }))).toEqual([body, true])
-})
-
-test('H3: arguments handed to a script are read with its body', async () => {
-  const d = await bodyIn('npm run unit -- --require ./evil.js --run quiet', {}, { unit: 'node', quiet: 'node hidden.js' })
-  expect(d.scripts.map(s => s.name)).toEqual(['test', 'unit', 'quiet'])
-  expect(watchOf(d)).toContain('evil.js')
-})
-
-test('ordinary cases stay automatic', async () => {
-  const typedCases: [string, Tree][] = [
-    ['claude plugin test mods/os-deck', plugin('mods/os-deck/')],
-    ['bun test', {}],
-    ['bash tests/run_all.sh', { 'tests/run_all.sh': 'echo' }],
-    ['node scripts/x.js', { 'scripts/x.js': '' }],
-  ]
-  for (const [line, files] of typedCases) {
-    const d = await typedDraft(line, files)
-    expect([line, d.problem, d.manualOnly]).toEqual([line, null, null])
-  }
-  const bodies = [
-    'jest', 'tsc --noEmit', 'eslint .', 'node scripts/x.js', 'bash tests/run_all.sh', 'bun test', 'claude plugin test .', 'vitest run', 'jest --passWithNoTests',
-    'cross-env NODE_ENV=test jest', 'eslint "src/**/*.ts" --max-warnings 0', 'prettier --check src/**/*.{ts,tsx}', 'tsc -p tsconfig.build.json && vite build', 'node --test',
-    'NODE_OPTIONS=--max-old-space-size=4096 vite build', 'rimraf dist && tsc', 'npx tsc --noEmit', 'jest --testEnvironment node', 'python -m pytest -q', 'jest > report.txt 2>&1',
-  ]
-  for (const body of bodies) {
-    const d = await bodyIn(body, { 'scripts/x.js': '', 'tests/run_all.sh': '' })
-    expect([body, d.problem, d.manualOnly]).toEqual([body, null, null])
-  }
-})
-
-test('ordinary cases stay unpaused: work on the code changes nothing watched', async () => {
-  for (const line of ['bun test', 'npm run test', 'bash tests/run_all.sh', 'node scripts/x.js', 'claude plugin test mods/m']) {
-    const d = await typedDraft(line, { 'package.json': pkg({ test: 'jest && eslint . && tsc --noEmit -p . && vite build --outDir dist && node scripts/x.js' }), 'src/index.ts': '', 'src/index.js': '', 'tests/a.test.ts': '', 'mods/m/hooks/register.tsx': '', 'mods/m/tests/a.test.ts': '', 'dist/index.js': '' })
-    expect(d.problem).toBeNull()
-    for (const work of ['src/index.ts', 'src/index.js', 'tests/a.test.ts', 'mods/m/hooks/register.tsx', 'mods/m/tests/a.test.ts', 'dist/index.js', 'index.js']) expect([line, work, watchOf(d).includes(work)]).toEqual([line, work, false])
-  }
-})
-
-test('what a command writes is not watched', async () => {
-  const d = await bodyIn('rimraf dist/a.js && esbuild src.ts --outfile=dist/a.js && esbuild b.ts -o dist/b.js && node scripts/x.js > dist/log.js')
-  expect(d.problem).toBeNull()
-  for (const path of ['dist/a.js', 'dist/b.js', 'dist/log.js']) expect(watchOf(d)).not.toContain(path)
 })
 
 test('a watched path that cannot be read is a problem', async () => {
@@ -672,171 +431,7 @@ test('a draft with a problem has nothing a press can be bound to', async () => {
   expect(await press(d)).toEqual({ refused: 'the checks changed since they were shown' })
 })
 
-test('H3: cmd, aliases and wrappers read as they would run', async () => {
-  const bodies = [
-    'npm=run quiet', 'node=hidden.js jest', 'node/x run quiet', 'trap "node hidden.js" EXIT', 'npx turbo@2 run quiet', 'node node_modules/npm/lib/cli.js run quiet',
-    'bun node_modules/npm/bin/npm-cli.js run quiet', 'bash node_modules/.bin/npm run quiet', 'bash scripts/wrap.sh npm run quiet', 'node scripts/wrap.js npm run quiet',
-    './scripts/wrap npm run quiet', 'python scripts/wrap.py npm run quiet', 'perl -E 1', 'myrunner run quiet', 'npm exec tsc --noEmit',
-  ]
-  for (const body of bodies) expect(refused(body, await bodyIn(body, {}, { quiet: 'node hidden.js' }))).toEqual([body, true])
-
-  const versioned = await bodyIn('npx -y pnpm@8 run quiet', {}, { quiet: 'node hidden.js' })
-  expect([versioned.problem, versioned.scripts.map(s => s.name)]).toEqual([null, ['test', 'quiet']])
-  expect((await bodyIn('../bin/jest')).manualOnly).toBe('test: it runs a file outside the repository')
-})
-
-test('H1: config spelled to be read otherwise', async () => {
-  const cases: [string, string, string][] = [
-    ['npm run test', '.npmrc', 'node-options=--require ./a.js#x\n'],
-    ['npm run test', '.npmrc', 'workspace#x=pkg\n'],
-    ['npm run test', '.npmrc', '"work\\u0073pace"=pkg\n'],
-    ['npm run test', '.npmrc', 'w=pkg\n'],
-    ['yarn run test', '.yarnrc.yml', '"yarn\\u0050ath": tools/yarn\n'],
-    ['yarn run test', '.yarnrc.yml', 'yarnPath:\n  tools/yarn\n'],
-    ['yarn run test', '.yarnrc.yml', 'injectEnvironmentFiles: [other]\n'],
-    ['yarn run test', '.yarnrc', 'modules-folder "evil"\n'],
-    ['pnpm run test', 'pnpm-workspace.yaml', '"script\\u0053hell": ./other\n'],
-    ['pnpm run test', 'pnpm-workspace.yaml', 'script-shell: ./other\n'],
-    ['bun test', 'bunfig.toml', '"pre\\u006coad" = ["./pre.ts"]\n'],
-  ]
-  for (const [line, path, body] of cases) expect([body, (await typedDraft(line, { 'package.json': pkg({ test: 'jest' }), [path]: body })).problem?.includes(path) === true]).toEqual([body, true])
-})
-
-test('H1: node options follow a change of folder', async () => {
-  const d = await bodyIn('cd tools && node lint.js', { '.npmrc': 'node-options=--require=./helper.cjs\n', 'tools/lint.js': '' })
-  expect(d.problem).toBeNull()
-  for (const path of ['helper.cjs', 'tools/helper.cjs']) expect(watchOf(d)).toContain(path)
-})
-
-test('H2: the other files that run in a program’s place', async () => {
-  expect(watchOf(await bodyIn('jest.js'))).toContain('jest.js')
-  expect(watchOf(await bodyIn('APP_MODE=1 jest'))).toContain('APP_MODE.cmd')
-  expect(watchOf(await bodyIn("mocha './spec/a.js'"))).toContain('spec/a.js')
-  expect(watchOf(await bodyIn('node scripts/x.js --file tools/y.js'))).toContain('tools/y.js')
-  expect(watchOf(await typedDraft('yarn run test', { 'package.json': pkg({ test: 'jest' }) }))).toContain('.pnp.cjs')
-  expect(watchOf(await typedDraft('bun test', { 'bunfig.toml': 'preload = ["setup"]\n' }))).toContain('setup.ts')
-})
-
 // ---------------------------------------------------------------- each guard of the reading
-
-test('each refusal of a line of shell', async () => {
-  const cases: [string, string][] = [
-    ['echo %HOME%', 'it expands a variable'],
-    ['echo "$HOME"', 'it expands a variable or a command'],
-    ['echo "a\\b"', 'it uses a shell escape'],
-    ['node ~/x.js', 'it expands a home folder'],
-    ['echo --dir=~/x', 'it expands a home folder'],
-    ['echo "open', 'a quote in it is not closed'],
-    ['jest >', 'it sends output where that cannot be told'],
-    ['jest > && tsc', 'it sends output where that cannot be told'],
-    ['jest > > out', 'it sends output where that cannot be told'],
-    ['eslint * src', 'it expands names that could be anything'],
-    ['eslint * "open', 'it expands names that could be anything'],
-    ['eslint *>out', 'it expands names that could be anything'],
-    ['eslint *&& tsc', 'it expands names that could be anything'],
-    ['jest && && tsc', 'a command in it is empty'],
-    ['&& jest', 'a command in it is empty'],
-  ]
-  for (const [body, why] of cases) expect([body, (await bodyIn(body)).problem]).toEqual([body, `test: the script "test" cannot be shown: ${why}`])
-})
-
-test('each refusal of a command', async () => {
-  const cases: [string, string][] = [
-    ['node a/../b.js', 'a path in it cannot be resolved'],
-    ['node --run --x', 'the script node runs cannot be told'],
-    ['node -r --no-warnings a.js', 'what node loads first cannot be told'],
-    ["node 'a.js'", 'the file node runs cannot be told'],
-    ['node --run quiet extra', 'what node hands to the script cannot be told'],
-    ['npm run quiet -- "a&b"', 'what it hands to a script cannot be told'],
-    ["npm run quiet -- 'a b'", 'what it hands to a script cannot be told'],
-    ['npx --package x tsc', 'the program it starts cannot be told'],
-    ['npx', 'the program it starts cannot be told'],
-    ['yarn frobnicate', 'a command of yarn not understood'],
-    ['bun test --preload', 'what bun loads first cannot be told'],
-    ['bun run x.ts npm', 'another program is handed a runner'],
-    ['tsx w.ts npm', 'another program is handed a runner'],
-    ['wrapper npm audit', 'another program is handed a runner'],
-    ['tsx node_modules/npm/bin/npm-cli.js', 'a package runner under another name'],
-    ['python node_modules/npm/run.py', 'a package runner under another name'],
-    ['./npm audit', 'a package runner under another name'],
-    ['bash -c "echo" extra', 'the line given to a shell cannot be told'],
-    ['python -c pass', 'the code python runs cannot be told'],
-    ['python', 'the code python runs cannot be told'],
-    ['claude plugin test a/../b', 'the plugin folder cannot be resolved'],
-    ['make -C other', 'a word before a recipe of make not understood'],
-    ['make SHELL=evil', 'a word before a recipe of make not understood'],
-    ['NODE_ENV=test', 'it sets the environment and names no command'],
-    ['./a/../run.sh', 'a path in it cannot be resolved'],
-    ['corepack enable', 'a command of corepack not understood'],
-    ['jest "npm run quiet"', 'jest is handed a runner'],
-  ]
-  for (const [body, why] of cases) expect([body, (await bodyIn(body, {}, { quiet: 'jest' })).problem]).toEqual([body, `test: the script "test" cannot be shown: ${why}`])
-
-  expect((await bodyIn('cd src && npm run quiet', { 'src/a.ts': '' })).problem).toBe('test: the script "test" cannot be shown: the package.json of src cannot be read')
-  expect((await bodyIn('npm run empty -- sh', {}, { empty: '' })).problem).toBe('test: the script "empty" cannot be shown: what is handed to it would be the command')
-  expect((await typedDraft('yarn tsc')).problem).toBe('test: it cannot be shown: what yarn tsc starts cannot be told')
-  const many = 'echo;'.repeat(190) + 'echo'
-  expect((await draftOf({ pretest: many, test: many, posttest: many })).problem).toBe('test: it runs more commands than can be shown')
-})
-
-test('each file a command names is watched', async () => {
-  const cases: [string, string[]][] = [
-    ['tsc -p tsconfig.build.json', ['tsconfig.build.json']],
-    ['tsc -p app', ['app/tsconfig.json']],
-    ['jest --config ./conf/jest', ['conf/jest.js']],
-    ['rollup -c rollup.cfg', ['rollup.cfg']],
-    ['bun build entry.ts', ['entry.ts']],
-    ['bun run build.ts helper.js', ['build.ts', 'helper.js']],
-    ['bun test --preload ./setup', ['setup.ts']],
-    ['bun test -r ./early', ['early.ts']],
-    ['bun test a.test.ts', ['a.test.ts']],
-    ['node --test a.test.js', ['a.test.js']],
-    ['bash tests/run helper.sh', ['tests/run', 'helper.sh']],
-    ['python -m pytest conftest.py', ['pytest.py', 'pytest/__init__.py', 'pytest/__main__.py', 'conftest.py']],
-    ['python tools helper.py', ['tools', 'tools/__main__.py', 'helper.py']],
-    ['tsx tool.ts helper.ts', ['tool.ts', 'helper.ts']],
-    ['./scripts/check.sh helper.js', ['scripts/check.sh', 'scripts/check.sh.cmd', 'helper.js']],
-    ['cargo test check.sh', ['check.sh']],
-    ['node tool.js', ['tsconfig.json', 'package.json']],
-    ['claude plugin test mods/m', ['mods/m/bunfig.toml', 'mods/m/package.json']],
-  ]
-  for (const [line, paths] of cases) {
-    const d = await bodyIn(line)
-    expect([line, d.problem]).toEqual([line, null])
-    for (const path of paths) expect([line, path, watchOf(d).includes(path)]).toEqual([line, path, true])
-  }
-  // With no package.json and no script: the check alone.
-  expect(watchOf(await typedDraft('node tool.js'))).toContain('tsconfig.json')
-})
-
-test('a folder’s main, where it leads', async () => {
-  const main = async (value: string, more: Tree) => bodyIn('node tools/lint', { 'tools/lint/package.json': JSON.stringify({ main: value }), ...more })
-  expect((await main('./bin/cli', { 'tools/lint/bin/cli': 'x' })).watched).toContainEqual(['tools/lint/bin/cli', await sha('x')])
-  expect((await main('./dist', { 'tools/lint/dist/index.js': 'x' })).watched).toContainEqual(['tools/lint/dist/index.js', await sha('x')])
-  expect((await main('../../../out', {})).manualOnly).toBe('test: it runs a file outside the repository')
-})
-
-test('a plugin’s own config and hooks', async () => {
-  const d = await typedDraft('claude plugin test mods/m', { 'bunfig.toml': '[test]\n', 'mods/m/bunfig.toml': '[run]\n', 'mods/m/.claude-plugin/plugin.json': '{"hooks":"./other/hooks.json"}' })
-  expect(d.files.map(f => f.path)).toEqual(['bunfig.toml', 'mods/m/bunfig.toml'])
-  expect(watchOf(d)).toContain('mods/m/other/hooks.json')
-})
-
-test('config is shown for every way into a runner', async () => {
-  for (const line of ['run-s lint', 'npx tsc', 'corepack npm run lint', 'npm exec tsc']) {
-    const d = await typedDraft(line, { 'package.json': pkg({ lint: 'eslint .' }), '.npmrc': 'audit=false' })
-    expect([line, d.files.map(f => f.path)]).toEqual([line, ['.npmrc']])
-  }
-})
-
-test('each reason to run by hand', async () => {
-  const cases: [string, string][] = [
-    ['python -m http.server', 'what that python module runs is not known'],
-    ['python -X dev run.py', 'what those python flags run is not known'],
-    ['ruby -S rake', 'what those flags of ruby run is not known'],
-  ]
-  for (const [body, why] of cases) expect([body, (await bodyIn(body)).manualOnly]).toEqual([body, `test: ${why}`])
-})
 
 test('files shown are counted in lines as scripts are', async () => {
   const short = '#\n'.repeat(140)
@@ -844,25 +439,174 @@ test('files shown are counted in lines as scripts are', async () => {
   expect(d.problem).toBe('too long to show whole')
 })
 
-test('H3: a script named like another folder’s hides none', async () => {
-  const d = await bodyIn('npm run "web: lint" && cd web && npm run lint', { 'web/package.json': pkg({ lint: 'node hidden.js' }) }, { 'web: lint': 'eslint .' })
-  expect(d.problem).toBeNull()
-  expect(d.scripts.map(s => s.body)).toEqual(['npm run "web: lint" && cd web && npm run lint', 'eslint .', 'node hidden.js'])
-})
-
-test('H3: code and runners behind the flags of a host', async () => {
-  for (const body of ['python -X dev -c pass', 'ruby -w -e 1', 'python -X dev wrap.py npm run quiet', 'ruby -S npm run quiet', 'python -m invoke npm', 'wrapper "system(\'npm run quiet\')"'])
-    expect(refused(body, await bodyIn(body, {}, { quiet: 'node hidden.js' }))).toEqual([body, true])
-})
-
-test('H2: what may run by hand is still watched', async () => {
-  for (const [body, path] of [['python -X dev run.py', 'run.py'], ['ruby -w run.rb', 'run.rb'], ['python -m invoke tasks.py', 'tasks.py']] as const) {
-    const d = await bodyIn(body)
-    expect([body, d.manualOnly === null, watchOf(d).includes(path)]).toEqual([body, false, true])
-  }
-  expect(watchOf(await typedDraft('claude plugin test .'))).toContain('node.exe')
-})
-
 test('H1: npm sent to another package', async () => {
   for (const body of ['global=true\n', 'location=global\n', 'workspace-root=true\n']) expect([body, (await bodyIn('jest', { '.npmrc': body })).problem?.includes('.npmrc')]).toEqual([body, true])
+})
+
+// ---------------------------------------------------------------- the grammar: understood, by hand, or refused
+
+const bodyRefused = async (body: string, more: Tree = {}, scripts: Record<string, string> = {}) => {
+  const d = await bodyIn(body, more, scripts)
+  return [body, d.problem !== null, d.digest]
+}
+const RUNNABLE: Tree = { 'ok.js': '', 'x.js': '', 'scripts/x.js': '', 'tests/run_all.sh': '', 'tools/lint': '', 'dist/cli.js': '' }
+
+test('detection always proposes npm run, whoever installed', async () => {
+  for (const lock of ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'])
+    expect(await commands({ [lock]: '', 'package.json': pkg({ lint: 'eslint .' }) })).toEqual(['npm run lint'])
+})
+
+test('a script is shown with its hooks, exactly as written', async () => {
+  const body = 'eslint .  --max-warnings 0 && node ok.js'
+  const made = await draftOf({ test: body, pretest: 'tsc --noEmit', posttest: 'jest', other: 'x' }, ['npm', 'run', 'test'], RUNNABLE)
+  expect(made.problem).toBeNull()
+  expect(made.scripts).toEqual([
+    { checkId: 'test', name: 'pretest', body: 'tsc --noEmit' },
+    { checkId: 'test', name: 'test', body },
+    { checkId: 'test', name: 'posttest', body: 'jest' },
+  ])
+})
+
+test('scripts a script runs are followed, their hooks too', async () => {
+  const made = await draftOf({ test: 'npm run unit && npm run lint', unit: 'bun test', preunit: 'npm run gen', gen: 'node gen.js', lint: 'eslint .', posttest: 'jest' }, ['npm', 'test'], { 'gen.js': '' })
+  expect(made.problem).toBeNull()
+  expect(made.scripts.map(x => x.name).sort()).toEqual(['gen', 'lint', 'posttest', 'preunit', 'test', 'unit'])
+})
+
+test('loops end, depth and number are bounded', async () => {
+  const loop = await draftOf({ test: 'npm run b', b: 'npm run test' })
+  expect([loop.problem, loop.scripts.map(x => x.name)]).toEqual([null, ['test', 'b']])
+  const chain = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [i ? `s${i}` : 'test', i + 1 < n ? `npm run s${i + 1}` : 'jest']))
+  expect((await draftOf(chain(5))).problem).toBeNull()
+  expect((await draftOf(chain(6))).problem).toBe('test: its scripts run one another too deep to show')
+  const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`w${i}`, 'jest']))
+  expect((await draftOf({ test: Object.keys(wide).map(n => `npm run ${n}`).join(' && '), ...wide })).problem).toBe('test: it runs more scripts than can be shown')
+})
+
+test('what the screen would not draw whole is a problem of setup too', async () => {
+  // Each body is short enough alone; the twenty are not.
+  const many = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`s${i}`, `eslint ${'a'.repeat(900)}`]))
+  expect((await draftOf({ test: Object.keys(many).map(n => `npm run ${n}`).join(' && '), ...many })).problem).toBe('too long to show whole')
+  const named = await setup.draftFor(world({ [`${SECRET}/a.test.ts`]: '' }).$, `${ROOT}/${SECRET}`, [check({ argv: ['bun', 'test'] })], 'detected')
+  expect(named.problem).toBe('what looks like a secret')
+})
+
+test('ordinary cases stay automatic', async () => {
+  const typedCases: [string, Tree][] = [
+    ['claude plugin test mods/os-deck', plugin('mods/os-deck/')],
+    ['bun test', {}],
+    ['bash tests/run_all.sh', RUNNABLE],
+    ['node scripts/x.js', RUNNABLE],
+    ['tsc --noEmit', {}],
+  ]
+  for (const [line, files] of typedCases) {
+    const d = await typedDraft(line, files)
+    expect([line, d.problem, d.manualOnly]).toEqual([line, null, null])
+  }
+  const bodies = [
+    'jest', 'jest --ci --runInBand', 'tsc --noEmit', 'tsc -p tsconfig.build.json && vite build', 'eslint .', 'eslint src --max-warnings 0', 'prettier --check .',
+    'vitest run', 'bun test', 'node scripts/x.js', 'bash tests/run_all.sh', 'claude plugin test .', 'pytest -q',
+  ]
+  for (const body of bodies) {
+    const d = await bodyIn(body, RUNNABLE)
+    expect([body, d.problem, d.manualOnly]).toEqual([body, null, null])
+  }
+})
+
+test('ordinary cases stay unpaused: work on the code changes nothing watched', async () => {
+  for (const line of ['bun test', 'npm run test', 'bash tests/run_all.sh', 'claude plugin test mods/m']) {
+    const d = await typedDraft(line, { ...RUNNABLE, ...plugin('mods/m/'), 'package.json': pkg({ test: 'jest && eslint src && tsc --noEmit && vite build' }) })
+    expect([line, d.problem]).toEqual([line, null])
+    for (const work of ['src/index.ts', 'src', 'index.js', 'tests/a.test.ts', 'mods/m/hooks/register.tsx', 'mods/m/tests/a.test.ts', 'dist/index.js']) expect([line, work, watchOf(d).includes(work)]).toEqual([line, work, false])
+  }
+})
+
+test('N1: a quote, which cmd and sh read as two things, is not understood', async () => {
+  const bodies = [
+    "node --test-name-pattern='a evil.cjs b' ok.js", "node ok.js 'a --run quiet -- b'", 'eslint "src/**/*.ts"', 'eslint src/**/*.ts', 'node ok.js $HOME', 'node ok.js %PATH%',
+    'node ok.js; node x.js', 'node ok.js || node x.js', 'node ok.js | node x.js', 'node ok.js&&node x.js', 'node ok.js\tmore', 'node ok.js ~/x', 'node ok.js @args', 'node ok.js a,b',
+    'np^m run quiet', 'node ok.js # note', '(node ok.js)', 'node ok.js `id`', 'node ok.js !x',
+  ]
+  for (const body of bodies) expect(await bodyRefused(body, RUNNABLE)).toEqual([body, true, ''])
+})
+
+test('N2: a program of node_modules/.bin, which npm puts first, is watched', async () => {
+  const d = await bodyIn('bash tests/run_all.sh && tsc --noEmit', RUNNABLE)
+  expect(d.problem).toBeNull()
+  for (const name of ['bash', 'bash.cmd', 'tsc', 'tsc.cmd', 'tsc.exe', 'tsc.ps1', 'node', 'node.exe', 'node.cmd']) expect(d.watched).toContainEqual([`node_modules/.bin/${name}`, null])
+  const inFolder = await draft({ 'app/package.json': pkg({ test: 'jest' }) }, [check({ dir: 'app' })])
+  for (const path of ['app/node_modules/.bin/jest.cmd', 'node_modules/.bin/jest.cmd']) expect(watchOf(inFolder)).toContain(path)
+})
+
+test('N3: a config line not known to leave what runs alone is refused', async () => {
+  const lines = [
+    'usage=true', 'ignore-scripts=true', 'node-options=--require=./x.js', 'script-shell=sh', 'workspace=pkg', 'dry-run=true', '"usage"=true', 'usage', '[section]',
+    'us${X}age=true', 'prefix=..', 'audit=${X}', 'IGNORE-SCRIPTS=true', 'ignore_scripts=true',
+  ]
+  for (const line of lines) expect([line, (await bodyIn('jest', { '.npmrc': `${line}\n` })).problem !== null]).toEqual([line, true])
+  expect((await typedDraft('bun test', { 'bunfig.toml': '[test]\npreload = ["./pre.ts"]\n' })).problem).not.toBeNull()
+})
+
+test('H1: config that is harmless is shown whole, from the folder up to the root', async () => {
+  const body = 'audit=false\r\n\tfund=false\r\n# note\r\n'
+  const d = await draft({ '.npmrc': body, 'app/package.json': pkg({ test: 'jest' }) }, [check({ dir: 'app' })])
+  expect(d.problem).toBeNull()
+  expect(d.files).toEqual([{ path: '.npmrc', body }])
+  expect(d.watched).toContainEqual(['.npmrc', await sha(body)])
+})
+
+test('N15: a token that only names a variable is no secret; a token is', async () => {
+  const named = ['//registry.npmjs.org/:_auth', 'Token=${NPM_TOKEN}\n'].join('')
+  expect((await bodyIn('jest', { '.npmrc': named })).problem).toBeNull()
+  const real = ['//registry.npmjs.org/:_auth', `Token=${SECRET}\n`].join('')
+  expect((await bodyIn('jest', { '.npmrc': real })).problem).not.toBeNull()
+})
+
+test('N4: node reads a manifest otherwise, so node never runs a script', async () => {
+  for (const body of ['node --run quiet', 'node --run=quiet', 'node --require ./x.js ok.js', 'node -r setup ok.js', 'node -e 0', 'node --test tools/check'])
+    expect(await bodyRefused(body, RUNNABLE, { quiet: 'jest' })).toEqual([body, true, ''])
+})
+
+test('N5: what cmd reads as another command is not understood', async () => {
+  const bodies = ['cmd/c sh tools/lint', 'cmd/c exit 0', 'turbo/x run quiet', 'node >o,evil.cjs ok.js', 'node ok.js > out.txt', 'exit=0 node ok.js', 'NODE_ENV=test jest', './x.sh', 'NODE ok.js', 'node.exe ok.js']
+  for (const body of bodies) expect(await bodyRefused(body, RUNNABLE)).toEqual([body, true, ''])
+})
+
+test('N6: an option is never taken for the file', async () => {
+  for (const body of ['sh +e tools/lint', 'bash +x tools/lint', 'bash -c jest', 'sh -e tools/lint', 'node tools/lint', 'node 10>f tools/lint']) expect(await bodyRefused(body, RUNNABLE)).toEqual([body, true, ''])
+  for (const line of ['bash +x tools/lint', 'node tools/lint', 'node missing.js', 'bash missing.sh', 'node node_modules/npm/bin/npm-cli.js', 'node ../x.js']) expect([line, (await typedDraft(line, RUNNABLE)).problem !== null]).toEqual([line, true])
+})
+
+test('N7: what starts or fetches another package is refused, not offered', async () => {
+  const lines = ['npx -y tools/lint', 'npx tsc', 'bunx tsc', 'pnpm run test', 'yarn test', 'bun run test', 'npm exec tsc', 'npm ci', 'npm run test -- --watch', 'corepack pnpm test', 'turbo lint', 'cmd /c x']
+  for (const line of lines) {
+    expect([line, (await typedDraft(line, { ...RUNNABLE, 'package.json': pkg({ test: 'jest' }) })).problem !== null]).toEqual([line, true])
+    expect(await bodyRefused(line, RUNNABLE)).toEqual([line, true, ''])
+  }
+})
+
+test('a flag that makes a tool do nothing is no check', async () => {
+  for (const body of ['tsc --help', 'tsc --version', 'eslint --print-config x.js', 'jest --listTests', 'jest --passWithNoTests', 'prettier .', 'vitest', 'biome --version', 'bun test --preload=./x.ts', 'claude --version'])
+    expect(await bodyRefused(body, RUNNABLE)).toEqual([body, true, ''])
+})
+
+test('a program that is not known runs by hand alone, and says so', async () => {
+  for (const [body, program] of [['cargo check', 'cargo'], ['rimraf dist && tsc', 'rimraf'], ['make lint', 'make']] as const) {
+    const d = await bodyIn(body)
+    expect([body, d.problem, d.manualOnly]).toEqual([body, null, `test: what ${program} runs is not known`])
+  }
+  expect((await typedDraft('cargo check')).manualOnly).toBe('test: what cargo runs is not known')
+})
+
+test('a plugin’s manifests, however the folder is spelled, and hooks it names', async () => {
+  for (const [arg, base] of [['.', ''], ['mods/m', 'mods/m/'], ['mods/m/', 'mods/m/'], ['./mods/m', 'mods/m/']] as const) {
+    const d = await typedDraft(`claude plugin test ${arg}`, { [`${base}.claude-plugin/plugin.json`]: '{"hooks":"./hooks/own.json"}', [`${base}hooks/own.json`]: '{}' })
+    expect([arg, d.problem, d.manualOnly]).toEqual([arg, null, null])
+    for (const path of ['.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/own.json']) expect([arg, watchOf(d).includes(`${base}${path}`)]).toEqual([arg, true])
+  }
+})
+
+test('tsconfig named to a project is watched', async () => {
+  expect(watchOf(await bodyIn('tsc -p config/ts.json'))).toContain('config/ts.json')
+  expect(watchOf(await bodyIn('tsc --project config'))).toContain('config/tsconfig.json')
 })

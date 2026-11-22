@@ -28,6 +28,10 @@ export const hasSecret = (text: string): boolean => {
   return redact(plain) !== plain
 }
 
+/** The same of a file, where a token that only names a variable is no secret. */
+export const hasSecretInFile = (body: string): boolean =>
+  hasSecret(body.replace(/^\/\/[\w.:/-]+:_authToken=\$\{[A-Za-z_]\w*\}\r?$/gm, ''))
+
 /** Why what would run cannot be shown as it is; null where it can. */
 export const unshowable = (draft: Draft): string | null => {
   // A draft kept in state from before config was shown has none.
@@ -41,6 +45,7 @@ export const unshowable = (draft: Draft): string | null => {
   if (texts.reduce((n, t) => n + quoted(t).length, 0) > MAX_DRAFT_CHARS) return 'too long to show whole'
   if ([...draft.scripts, ...files].reduce((n, x) => n + x.body.split('\n').length, 0) > MAX_DRAFT_LINES) return 'too long to show whole'
   // An argument split from its flag is still read as one line.
-  if (texts.some(hasSecret) || draft.checks.some(c => hasSecret(c.argv.join(' ')))) return 'what looks like a secret'
+  if (files.some(x => hasSecretInFile(x.body))) return 'what looks like a secret'
+  if (texts.filter(t => !files.some(x => x.body === t)).some(hasSecret) || draft.checks.some(c => hasSecret(c.argv.join(' ')))) return 'what looks like a secret'
   return null
 }

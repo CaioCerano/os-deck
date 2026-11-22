@@ -9,9 +9,8 @@ import { shorten } from '../core'
 import { redact } from '../redact'
 import { checkProblem, offerDigest, setupProblem } from './grant'
 import type { Draft } from './model'
-import { readCommand } from './reader/command'
-import { literal, readLine } from './reader/line'
-import { Unshown, programOf } from './reader/reading'
+import { commandsIn, readCommand } from './reader/command'
+import { Unshown } from './reader/reading'
 import type { Found, Reading } from './reader/reading'
 import { MAX_BODY, hidesSomething, scriptsIn, showProblem } from './reader/text'
 import { isLocalPath } from './revision'
@@ -37,9 +36,8 @@ const SCRIPT_NAMES: readonly [ProofKind, readonly string[]][] = [
 
 /** How a command's counts are read, where the command itself says so. */
 const parserOf = ([exe = '', first = '', second = '']: readonly string[]): ProofCountRule['parser'] | null => {
-  const program = programOf(exe)
-  if ((program === 'bun' && first === 'test') || (program === 'claude' && first === 'plugin' && second === 'test')) return 'bun'
-  return (program === 'bash' || program === 'sh') && programOf(first) === 'run_all.sh' ? 'pass-fail-lines' : null
+  if ((exe === 'bun' && first === 'test') || (exe === 'claude' && first === 'plugin' && second === 'test')) return 'bun'
+  return (exe === 'bash' || exe === 'sh') && /(?:^|\/)run_all\.sh$/.test(first) ? 'pass-fail-lines' : null
 }
 
 type Candidate = { id?: string; kind: ProofKind; argv: string[]; description: string; dir?: string; parser?: ProofCountRule['parser'] | null }
@@ -58,24 +56,17 @@ const checkOf = ({ kind, id = kind, argv, description, dir = '', parser = parser
 
 const hasFile = (entries: readonly Entry[] | null, name: string) => entries?.some(x => x.name === name && x.kind === 'file' && !x.isLink) === true
 
-const managerOf = (entries: readonly Entry[]): string => {
-  if (hasFile(entries, 'package-lock.json') || hasFile(entries, 'npm-shrinkwrap.json')) return 'npm'
-  if (hasFile(entries, 'pnpm-lock.yaml')) return 'pnpm'
-  if (hasFile(entries, 'yarn.lock')) return 'yarn'
-  return hasFile(entries, 'bun.lock') || hasFile(entries, 'bun.lockb') ? 'bun' : 'npm'
-}
-
-const scriptChecks = (manager: string, scripts: ReadonlyMap<string, unknown>): Candidate[] =>
+// Always npm run, whoever installed: it starts the body shown, where the others have rules of their own.
+const scriptChecks = (scripts: ReadonlyMap<string, unknown>): Candidate[] =>
   SCRIPT_NAMES.flatMap(([kind, names]): Candidate[] => {
     const name = names.find(n => typeof scripts.get(n) === 'string' && scripts.get(n) !== '')
     if (!name) return []
     const body = scripts.get(name) as string
     // What npm init writes is no test.
     if (kind === 'test' && body.includes('Error: no test specified')) return []
-    const read = body.length > MAX_BODY ? null : readLine(body)
-    const commands = read && 'commands' in read ? read.commands : []
-    const parser = commands.map(words => parserOf(words.map(w => w.text))).find(p => p !== null) ?? null
-    return [{ kind, argv: [manager, 'run', name], description: `${name} script`, parser }]
+    const commands = body.length > MAX_BODY ? [] : (commandsIn(body) ?? [])
+    const parser = commands.map(parserOf).find(p => p !== null) ?? null
+    return [{ kind, argv: ['npm', 'run', name], description: `${name} script`, parser }]
   })
 
 /** A Claude Code plugin with tests in `dir`. */
@@ -98,7 +89,7 @@ export async function detectChecks($: EngineInterface, root: string): Promise<Pr
     if (!entries) return []
     const manifest = await disk.file('package.json')
     const scripts = manifest.kind === 'file' ? scriptsIn(manifest.bytes) : null
-    const found: Candidate[] = scripts ? scriptChecks(managerOf(entries), scripts) : []
+    const found: Candidate[] = scripts ? scriptChecks(scripts) : []
     found.push(...(await pluginCheck(disk, '')))
     const mods = (await disk.list('mods')) ?? []
     const folders = mods.filter(x => x.kind === 'dir' && !x.isLink).map(x => x.name).sort()
@@ -185,9 +176,9 @@ export async function draftFor($: EngineInterface, root: string, checks: readonl
         problem = `${check.id}: its folder is not there, cannot be read, or is a link`
         break
       }
-      const r: Reading = { disk, root, check, cwd: check.dir, where: 'it', depth: 0, isArgv: true, found, own: { scripts: [], seen: new Set(), preloads: new Set(), commands: 0, manual: null } }
+      const r: Reading = { disk, root, check, where: 'it', depth: 0, inScript: false, found, own: { scripts: [], seen: new Set(), manual: null } }
       try {
-        await readCommand(r, check.argv.map(literal))
+        await readCommand(r, check.argv)
       } catch (err) {
         if (!(err instanceof Unshown)) throw err
         problem ??= `${check.id}: ${err.message}`
