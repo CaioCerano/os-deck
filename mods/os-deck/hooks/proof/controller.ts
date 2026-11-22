@@ -23,6 +23,8 @@ const READ_WAIT_MS = 1500
 const REFRESH_AFTER_MS = 2000
 const REFRESH_EVERY_MS = 30_000
 const MAX_KEPT = 100
+// Far more than attempts: each automatic run uses up a claim, so claims pruned first would end the runs.
+const MAX_CLAIMS = 1000
 
 // This load's own: what is running, its output, and the timers.
 const live = new Map<string, { id: string; signal: CancelSignal }>()
@@ -164,7 +166,7 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     const done = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, agentId: x.agentId, at, end: manifests, unread, roots, claims })
     await ops.setWork(w => ({ ...w, tracking: done.tracking }))
     // The new completion replaces what an earlier one claimed.
-    await ops.setProof(s => (s.session === session ? { ...s, claims: [...withdrawClaims(s.claims, session, x.taskId), done.claim].slice(-MAX_KEPT) } : s))
+    await ops.setProof(s => (s.session === session ? { ...s, claims: [...withdrawClaims(s.claims, session, x.taskId), done.claim].slice(-MAX_CLAIMS) } : s))
     const changed = new Set(done.claim.changes.map(c => c.root))
     for (const root of changed.size > 0 ? changed : new Set(roots.slice(0, 1))) void saveClaim($, root, done.claim).then(ok => noteSaved(ops, ok)).catch(() => undefined)
     refreshSoon($, ops)

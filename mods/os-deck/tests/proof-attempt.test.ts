@@ -122,3 +122,12 @@ test('cancelled before a check runs none', async () => {
   expect(got.attempt.checks.map(c => c.execution)).toEqual(['cancelled', 'cancelled'])
   expect(w.spawns()).toBe(0)
 })
+
+test('a watched file appearing in another case runs nothing', async () => {
+  const w = world()
+  // Absent as `Package.json` when allowed; here now as `package.json`, which the same programs load.
+  const { q } = await request({ watched: [['Package.json', null]] })
+  const got = await runAttempt(w.$, q)
+  expect('notRun' in got && got.changed).toEqual(['Package.json'])
+  expect(w.spawns()).toBe(0)
+})

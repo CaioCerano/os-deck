@@ -4,6 +4,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { ProofAttempt, ProofGrant, ProofResult } from '../../types'
 import { mayRun } from './grant'
+import { changedWatched } from './lifecycle'
 import { readRevision } from './revision'
 import { runCheck } from './runner'
 import type { CancelSignal } from './runner'
@@ -34,7 +35,7 @@ export async function runAttempt($: EngineInterface, q: AttemptRequest): Promise
     const start = await readRevision($, grant.root)
     if (!start.ok) return { notRun: `the content cannot be read: ${start.reason}`, changed: [] }
     // A manual press too: what a changed script runs is not what was allowed.
-    const changed = q.watched.filter(([path, hash]) => (start.hashes.get(path) ?? null) !== hash).map(([path]) => path)
+    const changed = changedWatched(q.watched, start.hashes)
     if (changed.length > 0) return { notRun: 'what the checks run has changed since it was allowed', changed }
 
     let attempt: ProofAttempt = {
@@ -47,7 +48,7 @@ export async function runAttempt($: EngineInterface, q: AttemptRequest): Promise
       let result: ProofResult
       // An earlier check can rewrite what this one runs.
       const now = q.watched.length > 0 && attempt.checks.length > 0 ? await readRevision($, grant.root) : start
-      const isSame = now.ok && q.watched.every(([path, hash]) => (now.hashes.get(path) ?? null) === hash)
+      const isSame = now.ok && changedWatched(q.watched, now.hashes).length === 0
       const reason = signal.cancelled ? 'cancelled' : !isSame ? 'what it runs changed during the attempt' : !(await q.isStillAllowed()) ? 'no longer allowed' : null
       if (reason) {
         const at = await $.clock.now()

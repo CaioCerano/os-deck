@@ -119,7 +119,28 @@ import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './githu
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
 import { flushHistory, historyReport, inTurn, loadHistory, pruneHistory, recordDay, sessionKeysIn } from './history'
 import { gitRead, readRepoState } from './safe-git'
-import { proofCommand, proofSessionEnded, proofSessionStarted, proofTaskChanged, proofToolRan, proofTurnEnded, proofTurnStarted } from './proof/controller'
+import {
+  liveRuns,
+  logShown,
+  pressAllow,
+  pressBaseline,
+  pressCancel,
+  pressResume,
+  pressReview,
+  pressShowLog,
+  pressVerify,
+  proofCommand,
+  proofSessionEnded,
+  proofSessionStarted,
+  proofTaskChanged,
+  proofToolRan,
+  proofTurnEnded,
+  proofTurnStarted,
+} from './proof/controller'
+import type { ProofActions } from './proof/model'
+import { presentProof } from './proof/present'
+import { logTail, proofNotices, proofSummary, setupDraft, taskDetail, taskMark } from './proof/view'
+import type { Section } from './proof/view'
 import { EMPTY_PROOF, EMPTY_WORK, proofOf, workOf } from './proof/state'
 import type { ProofOps } from './proof/state'
 
@@ -832,6 +853,23 @@ function proofOps($: EngineInterface): ProofOps {
   }
 }
 
+/** Agent Proof's presses. Each carries what was drawn; the controller holds it against what is. */
+function proofActions($: EngineInterface): ProofActions {
+  const ops = proofOps($)
+  const done = (work: Promise<unknown>) => work.catch(err => $.ui.toast(`OS-Deck proof: ${shorten(redact(String(err)), 120)}`))
+  return {
+    toggleClaim: id => done(ops.setProof(p => ({ ...p, openClaim: p.openClaim === id ? null : id }))),
+    allow: (root, digest, auto) => done(pressAllow($, ops, root, digest, auto)),
+    discardDraft: () => done(ops.setProof(p => ({ ...p, draft: null }))),
+    verify: root => done(pressVerify($, ops, root)),
+    cancel: root => done(pressCancel(root)),
+    acceptBaseline: (root, attempt, check, passed, skipped) => done(pressBaseline($, ops, root, attempt, check, passed, skipped)),
+    resume: root => done(pressResume($, ops, root)),
+    review: (claim, drawn) => done(pressReview($, ops, claim, drawn)),
+    showLog: (root, check) => done(pressShowLog(ops, root, check)),
+  }
+}
+
 async function resetAll($: EngineInterface) {
   await update($, main, m => ({ ...DEFAULT_MAIN, model: normalize(DEFAULT_MAIN, m).model, mode: normalize(DEFAULT_MAIN, m).mode }))
   await update($, architect, () => DEFAULT_ARCHITECT)
@@ -1463,6 +1501,8 @@ export const register: Register = (on, options) => {
       getGithub($),
     ])
     const pl = v.demoAt != null ? demoPlan(v.demoAt) : realPlan
+    const proofState = proofOf(await read($, proof))
+    const proofSeen = proofState.allowed.length > 0 || proofState.draft ? workOf(await read($, proofWork)) : EMPTY_WORK
     // The limits drawn: the session's, or cswap's reading of the active account (marked ~).
     const shown = shownLimits(u0.limits, acc, now)
     const u = { ...u0, limits: shown.limits }
@@ -2093,7 +2133,8 @@ export const register: Register = (on, options) => {
 
     // Inline above the prompt (the terminal's main screen), the pane is a summary of at most 8 rows.
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
-    if (isMini) {
+    // Setup waiting to be allowed needs its whole screen, wherever the dock is.
+    if (isMini && !(proofState.draft && cfg.view === 'plan')) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
       const counts = ` ${s.rule} allowed · ${s.cleared} ${decider}${s.ask > 0 ? ` · ${s.ask} pending` : ''} · ${s.deny} denied`
       const strip = g.recent.slice(-Math.max(4, W - cfg.gateLabel.length - 1 - counts.length))
@@ -2237,6 +2278,35 @@ export const register: Register = (on, options) => {
       const headerShown = shows('header') ? headerRows : 0
       const logReserve = shows('log') ? frameRows + 1 + Math.max(6, Math.round(bodyRows / 4)) : 0
       const planRoom = bodyRows - titleRows - headerShown - gitRows - ghRows - epicRows - archRows - agentsRows - timelineRowsN - (frameRows + 1) - logReserve
+      // Agent Proof, which draws nothing before setup. A sample plan's tasks have no claims.
+      const proofVm = presentProof(proofState, proofSeen, liveRuns(), logShown(), now)
+      for (const task of proofVm.tasks) {
+        const by = cards.find(x => x.id === task.claim.agentId)
+        if (by) task.claim = { ...task.claim, agentId: cardTitle(by) }
+      }
+      const proofDraw = { els: els as never, colors: C, width: inner, act: proofActions($) }
+      const proofTask = new Map(v.demoAt != null ? [] : proofVm.tasks.map(x => [x.claim.taskId, x] as const))
+      const proofHead = [setupDraft(proofDraw, proofVm.draft), proofSummary(proofDraw, proofVm), proofNotices(proofDraw, proofVm), logTail(proofDraw, proofVm)]
+      const openTask = proofVm.tasks.find(x => x.claim.id === proofVm.openClaim)
+      const openDetail = openTask ? taskDetail(proofDraw, proofVm, openTask, 2) : null
+      const proofRows = proofHead.reduce((n, x) => n + x.rows, 0) + (openDetail?.rows ?? 0)
+      // A section is one entry and several rows: the rows it adds beyond its entry.
+      let tallRows = 0
+      const pushSection = (key: string, x: Section) => {
+        if (!x.node) return
+        push(key, x.node)
+        tallRows += x.rows - 1
+      }
+      let isDetailDrawn = false
+      const markOf = (taskId: string) => {
+        const task = proofTask.get(taskId)
+        return task ? taskMark(proofDraw, task).node : null
+      }
+      const pushDetail = (taskId: string) => {
+        if (isDetailDrawn || !openDetail || openTask?.claim.taskId !== taskId) return
+        pushSection('proof-detail', openDetail)
+        isDetailDrawn = true
+      }
       // Rows the outline does not count: the issue, the bar, agents under open tasks, an opened agent, work outside the plan.
       const looseCount = cards.filter(c => !taskOf.has(c.id)).length
       const extras =
@@ -2244,6 +2314,7 @@ export const register: Register = (on, options) => {
         (tree.total > 0 ? 1 : 0) +
         pl.tasks.filter(tk => tk.status !== 'completed').reduce((n, tk) => n + Math.min(4, cards.filter(c => taskOf.get(c.id) === tk.id).length), 0) +
         (v.expanded ? 7 : 0) +
+        proofRows +
         cards.filter(c => c.status === 'running' && c.tools.length > 0).length +
         (looseCount > 0 || advising ? 1 + Math.min(4, looseCount) + (advising ? 1 : 0) + (looseCount > 4 ? 1 : 0) : 0)
       const deckOutline = planOutline(tree, current, Math.max(4, planRoom - extras), { focus: handFocus, showDone: v.planDone === true })
@@ -2351,6 +2422,7 @@ export const register: Register = (on, options) => {
           </Text>
         ))
       }
+      proofHead.forEach((x, i) => pushSection(`proof-${i}`, x))
       for (const l of deckOutline) {
         const pad = '  '.repeat(l.depth)
         if (l.kind === 'group') {
@@ -2409,8 +2481,10 @@ export const register: Register = (on, options) => {
               </Box>
               {isNow && tk.startedAt !== null ? <Text dimColor>{` ${fmtDuration(now - tk.startedAt)}`}</Text> : null}
               {blockers.length > 0 ? <Text color={C.amber} dimColor wrap="truncate">{` after ${shorten(blockers[0]?.subject ?? '', 18)}`}</Text> : null}
+              {markOf(tk.id)}
             </Box>
           ))
+          pushDetail(tk.id)
           const mine = cards.filter(c => taskOf.get(c.id) === tk.id).slice(-4)
           mine.forEach((c, i) => pushAgent(c, `${pad}  `, i === mine.length - 1))
         } else {
@@ -2438,12 +2512,17 @@ export const register: Register = (on, options) => {
       // What room is left shows the latest finished tasks, newest first, unless they are listed already.
       const listed = new Set(deckOutline.flatMap(l => (l.task ? [l.task.id] : [])))
       // Not while the outline is cut short: open work comes before finished work.
-      const recent = v.planDone || deckOutline.some(l => l.kind === 'more')
+      const needsLook = (id: string) => {
+        const task = proofTask.get(id)
+        return task !== undefined && (task.verdict.state !== 'verified' || !task.isReviewed)
+      }
+      const recent = v.planDone || (proofTask.size === 0 && deckOutline.some(l => l.kind === 'more'))
         ? []
         : pl.tasks
             .filter(tk => tk.status === 'completed' && !listed.has(tk.id))
-            .sort((x, y) => (y.doneAt ?? 0) - (x.doneAt ?? 0))
-            .slice(0, Math.max(0, Math.min(6, planRoom - rowsOut.length - 1)))
+            .sort((x, y) => Number(needsLook(y.id)) - Number(needsLook(x.id)) || (y.doneAt ?? 0) - (x.doneAt ?? 0))
+            // A claim is of a finished task: with any, some of them always show.
+            .slice(0, Math.max(proofTask.size > 0 ? 3 : 0, Math.min(6, planRoom - rowsOut.length - tallRows - 1)))
       if (recent.length > 0) {
         push('deck-recent', <Text dimColor>recently done</Text>)
         recent.forEach(tk => {
@@ -2456,10 +2535,14 @@ export const register: Register = (on, options) => {
                   {tk.subject}
                 </Text>
               </Box>
+              {markOf(tk.id)}
             </Box>
           ))
+          pushDetail(tk.id)
         })
       }
+      // Folded away, its task still has what was opened.
+      if (openTask) pushDetail(openTask.claim.taskId)
       if (rowsOut.length === 0) push('deck-empty', <Text color={C.faint}>no tasks or subagents yet</Text>)
 
       // ---- git: one row a repository: name, branch, distance from its base, changed files
@@ -2703,7 +2786,8 @@ export const register: Register = (on, options) => {
           ))}
         </Box>
       )
-      const deckRows = shows('plan') ? frameRows + 1 + rowsOut.length : 0
+      const planShown = shows('plan') || proofState.draft !== null
+      const deckRows = planShown ? frameRows + 1 + rowsOut.length + tallRows : 0
       const logLines = Math.max(3, bodyRows - titleRows - headerShown - gitRows - ghRows - epicRows - archRows - agentsRows - timelineRowsN - deckRows - frameRows - 1)
       const tail = (viewed ? lines.filter(l => l.agentId === viewed) : lines).slice(-logLines)
       return (
@@ -2807,7 +2891,7 @@ export const register: Register = (on, options) => {
               {ev.rows.length > epicKids.length ? <Text color={C.faint}>{`+${ev.rows.length - epicKids.length} more`}</Text> : null}
             </Box>
           ) : null}
-          {shows('plan') ? (
+          {planShown ? (
           <Box flexDirection="column" {...frame(C.gate)} width={W}>
             <Box justifyContent="space-between">
               {title('PLAN', C.gate)}
