@@ -141,7 +141,7 @@ From `claude plugin validate mods/os-deck`:
 - `$.store`: hidden sections, the plan's history and each day's summary (`os-deck:history`, about two months), between sessions.
 - `$.ui.notify`: the alerts for a waiting ask and a long turn (the `alerts` option). `$.clock.now`, `$.clock.every` (reading the account every 45 s), `$.clock.after` (a new reading when the 35 s window ends, and the ask alerts), all cancelled when the session ends, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
 
-Git commands and log text go through a redaction that hides tokens, passwords and keys.
+Everything the dock stores from commands, agents, tasks, Jira, GitHub and errors goes through a redaction that hides tokens, passwords and keys. It works by pattern, so a secret in a format it does not know can still show. Git is read with the filters of the repository's own config turned off (filters installed with `git lfs install --local` included), and Jira issues enter the system prompt by key alone.
 
 ## Configuration
 

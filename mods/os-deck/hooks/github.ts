@@ -5,6 +5,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { GhCheck, GhPr, Github } from '../types'
+import { redact } from './redact'
 
 export const DEFAULT_GITHUB: Github = { status: 'off', pr: null, open: [], at: 0, error: null }
 
@@ -30,7 +31,7 @@ export const closingIssuesOf = (body: string): number[] => {
 export const checkOf = (x: unknown): GhCheck | null => {
   if (!x || typeof x !== 'object') return null
   const o = x as Record<string, unknown>
-  const name = String(o.name ?? o.context ?? 'check')
+  const name = redact(String(o.name ?? o.context ?? 'check'))
   const state = String(o.state ?? '').toUpperCase()
   const status = String(o.status ?? '').toUpperCase()
   const conclusion = String(o.conclusion ?? '').toUpperCase()
@@ -56,14 +57,14 @@ export const parsePr = (stdout: string): GhPr | null => {
   const review = String(o.reviewDecision ?? '')
   return {
     number: o.number,
-    title: String(o.title ?? ''),
+    title: redact(String(o.title ?? '')),
     state: String(o.state ?? 'OPEN').toUpperCase() === 'MERGED' ? 'merged' : String(o.state ?? 'OPEN').toUpperCase() === 'CLOSED' ? 'closed' : 'open',
     isDraft: o.isDraft === true,
     review: review === 'APPROVED' ? 'approved' : review === 'CHANGES_REQUESTED' ? 'changes' : review === 'REVIEW_REQUIRED' ? 'required' : 'none',
     checks,
     closes: closingIssuesOf(String(o.body ?? '')),
     url: String(o.url ?? ''),
-    branch: String(o.headRefName ?? ''),
+    branch: redact(String(o.headRefName ?? '')),
   }
 }
 
@@ -74,7 +75,7 @@ export const parsePrList = (stdout: string): Github['open'] => {
     if (!Array.isArray(xs)) return []
     return xs
       .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object' && typeof (x as Record<string, unknown>).number === 'number')
-      .map(x => ({ number: x.number as number, title: String(x.title ?? ''), branch: String(x.headRefName ?? ''), isDraft: x.isDraft === true }))
+      .map(x => ({ number: x.number as number, title: redact(String(x.title ?? '')), branch: redact(String(x.headRefName ?? '')), isDraft: x.isDraft === true }))
       .slice(0, 5)
   } catch {
     return []
@@ -95,7 +96,7 @@ export const ghErrorOf = (stderr: string, exitCode: number): string => {
   const s = stderr.toLowerCase()
   if (s.includes('auth login') || s.includes('not logged')) return 'gh is not signed in (gh auth login)'
   if (s.includes('not a git repository') || s.includes('no git remotes') || s.includes('none of the git remotes')) return 'not a GitHub repository'
-  return stderr.trim().split('\n')[0]?.slice(0, 80) || `gh exited ${exitCode}`
+  return redact(stderr.trim().split('\n')[0] ?? '').slice(0, 80) || `gh exited ${exitCode}`
 }
 
 /**
@@ -110,7 +111,7 @@ export async function readGithub($: EngineInterface, dir: string, gh = 'gh'): Pr
     view = await run(['pr', 'view', '--json', PR_FIELDS])
   } catch (err) {
     const text = String(err)
-    return { ...DEFAULT_GITHUB, status: /enoent|not found|no such file/i.test(text) ? 'missing' : 'error', at, error: text.slice(0, 80) }
+    return { ...DEFAULT_GITHUB, status: /enoent|not found|no such file/i.test(text) ? 'missing' : 'error', at, error: redact(text).slice(0, 80) }
   }
   // A shell's way of saying the program is not there.
   if (view.exitCode === 127 || /command not found|is not recognized|enoent/i.test(view.stderr)) return { ...DEFAULT_GITHUB, status: 'missing', at, error: ghErrorOf(view.stderr, view.exitCode) }

@@ -57,6 +57,8 @@ import {
   settleCheck,
   shorten,
   redact,
+  redactDeep,
+  recordsOf,
   startConsult,
   stepSpeed,
   stepLoop,
@@ -115,6 +117,7 @@ import type { AlertConfig } from './alerts'
 import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './github'
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
 import { HISTORY_KEY, historyReport, recordDay } from './history'
+import { gitRead, gitStatus } from './safe-git'
 import type { Config, Panel } from './core'
 
 const PANE = 'flightdeck'
@@ -157,11 +160,12 @@ async function getMain($: EngineInterface): Promise<Main> {
   return normalize(DEFAULT_MAIN, await read($, main))
 }
 async function getUsage($: EngineInterface): Promise<Usage> {
-  return normalize(DEFAULT_USAGE, await read($, usage))
+  const u = normalize(DEFAULT_USAGE, await read($, usage))
+  return { ...u, limits: recordsOf<Usage['limits'][number]>(u.limits, 'kind'), turnPcts: listOf<number>(u.turnPcts) }
 }
 async function getArchitect($: EngineInterface): Promise<Architect> {
   const a = normalize(DEFAULT_ARCHITECT, await read($, architect))
-  return { ...a, consults: listOf(a.consults), ids: listOf(a.ids), seen: listOf(a.seen) }
+  return { ...a, consults: recordsOf(a.consults, 'id', 'via'), ids: listOf(a.ids), seen: listOf(a.seen) }
 }
 async function getGate($: EngineInterface): Promise<Gate> {
   return normalizeGate(await read($, gate))
@@ -170,7 +174,7 @@ async function getCards($: EngineInterface): Promise<AgentCard[]> {
   return cardsOf(await read($, agents))
 }
 async function getLoops($: EngineInterface): Promise<Loop[]> {
-  return listOf<Loop>(await read($, loops))
+  return recordsOf<Loop>(await read($, loops), 'id')
 }
 async function getLog($: EngineInterface): Promise<LogLine[]> {
   return normalizeLog(await read($, log))
@@ -185,24 +189,22 @@ async function getGit($: EngineInterface): Promise<Git> {
   return normalizeGit(await read($, git))
 }
 
-// Never take .git/index.lock: a refresh must not make the person's own commit or rebase fail.
-const GIT = ['git', '--no-optional-locks'] as const
 // Each repository's integration branch, found once: remote branches rarely come and go.
 const baseOf = new Map<string, string | null>()
 
 /** One repository: its status, and on a feature branch how far it sits from its integration branch. */
 async function readRepo($: EngineInterface, dir: string, name: string): Promise<GitRepo | null> {
-  const st = await $.process.run([...GIT, '-C', dir, 'status', '--porcelain=v2', '--branch'], { timeoutMs: 8000 })
+  const st = await gitStatus($, dir)
   if (st.exitCode !== 0) return null
   const repo = parseGitStatus(st.stdout, name)
   if (!repo.branch || isTrunk(repo.branch) || repo.branch === 'detached' || repo.branch === '(initial)') return repo
   if (!baseOf.has(dir)) {
-    const refs = await $.process.run([...GIT, '-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin'], { timeoutMs: 5000 })
+    const refs = await gitRead($, dir, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin'])
     baseOf.set(dir, refs.exitCode === 0 ? pickBase(refs.stdout) : null)
   }
   const base = baseOf.get(dir) ?? null
   if (!base) return repo
-  const ab = await $.process.run([...GIT, '-C', dir, 'rev-list', '--left-right', '--count', `${base}...HEAD`], { timeoutMs: 5000 })
+  const ab = await gitRead($, dir, ['rev-list', '--left-right', '--count', `${base}...HEAD`])
   const n = ab.exitCode === 0 ? parseAheadBehind(ab.stdout) : null
   return n ? { ...repo, base, baseAhead: n.ahead, baseBehind: n.behind } : repo
 }
@@ -211,7 +213,7 @@ async function readRepo($: EngineInterface, dir: string, name: string): Promise<
 async function refreshGit($: EngineInterface) {
   const startedAt = await $.clock.now()
   const cwd = await $.session.cwd()
-  const top = await $.process.run([...GIT, '-C', cwd, 'rev-parse', '--show-toplevel'], { timeoutMs: 5000 })
+  const top = await gitRead($, cwd, ['rev-parse', '--show-toplevel'])
   const dirs: { dir: string; name: string }[] = []
   if (top.exitCode === 0) {
     const d = top.stdout.trim()
@@ -252,7 +254,13 @@ async function pokeGit($: EngineInterface, isOn: boolean, force: boolean) {
 // ---------------------------------------------------------------- github (gh)
 
 async function getGithub($: EngineInterface): Promise<Github> {
-  return normalize(DEFAULT_GITHUB, await read($, github))
+  const x = normalize(DEFAULT_GITHUB, await read($, github))
+  const pr = x.pr && typeof x.pr.number === 'number' && typeof x.pr.title === 'string' ? x.pr : null
+  return {
+    ...x,
+    pr: pr && { ...pr, checks: recordsOf(pr.checks, 'name', 'state'), closes: listOf(pr.closes) },
+    open: recordsOf(x.open, 'title'),
+  }
 }
 
 // Read at most once a minute unless forced (a push, a `gh pr` command, /os-deck github); never two at once.
@@ -286,7 +294,12 @@ const ACCOUNT_POLL_MS = 45_000
 const ACCOUNT_POKE_MS = 5_000
 
 async function getAccount($: EngineInterface): Promise<Account> {
-  return normalize(DEFAULT_ACCOUNT, await read($, account))
+  const a = normalize(DEFAULT_ACCOUNT, await read($, account))
+  return {
+    ...a,
+    active: typeof a.active?.email === 'string' ? a.active : null,
+    accounts: recordsOf<Account['accounts'][number]>(a.accounts, 'email').map(x => ({ ...x, limits: recordsOf(x.limits, 'kind') })),
+  }
 }
 
 /**
@@ -330,8 +343,8 @@ async function readAccount($: EngineInterface, command: string, force: boolean):
       out = await $.process.run([command, 'list', '--json'], { timeoutMs: 10_000 })
     } catch (err) {
       const isMissing = /ENOENT|not found|no such file/i.test(String(err))
-      await update($, account, (x): Account => ({ ...normalize(DEFAULT_ACCOUNT, x), status: isMissing ? 'missing' : 'error', error: isMissing ? null : shorten(String(err), 120), at: now }))
-      if (!isMissing && before.status !== 'error') $.ui.toast(`OS-Deck: cswap failed: ${shorten(String(err), 80)}`)
+      await update($, account, (x): Account => ({ ...normalize(DEFAULT_ACCOUNT, x), status: isMissing ? 'missing' : 'error', error: isMissing ? null : shorten(redact(String(err)), 120), at: now }))
+      if (!isMissing && before.status !== 'error') $.ui.toast(`OS-Deck: cswap failed: ${shorten(redact(String(err)), 80)}`)
       return
     }
     const accounts = out.exitCode === 0 ? parseCswapList(out.stdout) : null
@@ -422,7 +435,7 @@ async function switchAccount($: EngineInterface, cfg: Config, target: string | n
   } catch (err) {
     return /ENOENT|not found|no such file/i.test(String(err))
       ? `OS-Deck: cswap (claude-swap) was not found as "${cfg.cswapCommand}". Install it or set the cswapCommand option.`
-      : `OS-Deck: cswap failed: ${shorten(String(err), 160)}`
+      : `OS-Deck: cswap failed: ${shorten(redact(String(err)), 160)}`
   }
   const r = parseCswapSwitch(out.stdout)
   if (!r) return `OS-Deck: cswap gave no answer it understands (exit ${out.exitCode}). Is it up to date?`
@@ -449,7 +462,7 @@ async function switchAccount($: EngineInterface, cfg: Config, target: string | n
 /** A press on an account in the pane: the switch, told in a toast as the pane has no reply line. */
 async function pickAccount($: EngineInterface, cfg: Config, n: number) {
   await update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), accountOpen: false }))
-  const text = await switchAccount($, cfg, String(n)).catch(err => `OS-Deck: cswap failed: ${shorten(String(err), 120)}`)
+  const text = await switchAccount($, cfg, String(n)).catch(err => `OS-Deck: cswap failed: ${shorten(redact(String(err)), 120)}`)
   $.ui.toast(text.replace(/^OS-Deck: /, ''))
 }
 
@@ -628,15 +641,38 @@ async function rebuildPlan($: EngineInterface) {
 async function migrate($: EngineInterface) {
   const m = await read($, meta)
   if ((m?.schemaVersion ?? 0) >= SCHEMA_VERSION) return
-  await update($, log, list => normalizeLog(list))
-  await update($, agents, list => listOf<unknown>(list).map(normalizeCard))
-  await update($, gate, g => normalizeGate(g))
+  await update($, log, list => redactDeep(normalizeLog(list)))
+  await update($, agents, list => redactDeep(cardsOf(list)))
+  await update($, gate, g => redactDeep(normalizeGate(g)))
+  await update($, architect, a => redactDeep(normalize(DEFAULT_ARCHITECT, a)))
+  await update($, plan, p => redactDeep(normalizePlan(p)))
+  await update($, github, x => redactDeep(normalize(DEFAULT_GITHUB, x)))
   await update($, meta, () => ({ schemaVersion: SCHEMA_VERSION }))
 }
 
 async function say($: EngineInterface, who: string, text: string, kind: LogLine['kind'] = 'info', agentId: string | null = null) {
-  const line: LogLine = { at: await $.clock.now(), who, text, kind, agentId }
+  const line: LogLine = { at: await $.clock.now(), who: redact(who), text: redact(text), kind, agentId }
   await update($, log, list => [...normalizeLog(list), line].slice(-60))
+}
+
+/** An observing hook's own work: its failure is logged and never reaches the call it watches. */
+async function quietly($: EngineInterface, what: string, work: () => Promise<void>) {
+  try {
+    await work()
+  } catch (err) {
+    await say($, 'os-deck', `${what} failed: ${String(err)}`, 'error').catch(() => undefined)
+  }
+}
+
+/** An ask that was answered (or whose call ended unanswered): settled, its alert dropped, the wait recorded. */
+async function settleAsk($: EngineInterface, id: string, didRun: boolean): Promise<boolean> {
+  settleAskAlert(id)
+  const asked = (await getGate($)).recent.find(c => c.id === id && c.verdict === 'ask')
+  if (!asked) return false
+  await update($, gate, g => settleCheck(normalizeGate(g), id, didRun))
+  const at = await $.clock.now()
+  void recordDay($, at, { asks: 1, askWaitMs: Math.max(0, at - asked.at) })
+  return true
 }
 
 async function refreshStatus($: EngineInterface, cfg: Config) {
@@ -673,7 +709,7 @@ async function consultStarted($: EngineInterface, cfg: Config, id: string, via: 
 
 async function consultEnded($: EngineInterface, cfg: Config, advice: string | null, id?: string) {
   const at = await $.clock.now()
-  const text = advice ? adviceLine(advice) || null : null
+  const text = advice ? adviceLine(redact(advice)) || null : null
   await update($, architect, a => endConsult(normalize(DEFAULT_ARCHITECT, a), at, text, id))
   await update($, turn, t => ({ ...normalize(DEFAULT_TURN, t), isReviewing: false }))
   await say($, cfg.architectLabel.toLowerCase(), text ? `advice: ${shorten(text, 60)}` : 'advice returned', 'consult')
@@ -856,7 +892,7 @@ export const register: Register = (on, options) => {
       try {
         await fetchEpic($, ek, site)
       } catch (err) {
-        return { text: `OS-Deck: ${ek} could not be read: ${String(err)}` }
+        return { text: `OS-Deck: ${ek} could not be read: ${redact(String(err))}` }
       }
       const ep = (await getPlan($)).epic
       return { text: ep?.key === ek ? `OS-Deck: ${ek} has ${ep.children.length} children.` : `OS-Deck: ${ek} could not be read.` }
@@ -938,13 +974,15 @@ export const register: Register = (on, options) => {
     await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: true }))
     // A background architect's report reaches the main loop as the text opening this turn. The
     // SubagentHandback tool call (in tool.call) normally carries it first; this is the fallback.
-    const back = e.text ? handbackOf(e.text) : null
+    // Redacted whole, before it is cut to a line: a cut secret no longer matches its rule.
+    const opening = e.text ? redact(e.text) : ''
+    const back = opening ? handbackOf(opening) : null
     const a = back ? await getArchitect($) : null
     if (back && a && a.ids.includes(back.from)) {
       const advice = adviceLine(back.body)
       if (advice) await noteAdvice($, cfg, advice, back.from)
-    } else if (e.text) {
-      const p = promptLine(e.text)
+    } else if (opening) {
+      const p = promptLine(opening)
       await say($, p.who, p.text)
     }
     return next(e)
@@ -979,11 +1017,11 @@ export const register: Register = (on, options) => {
     const [cards, a] = await Promise.all([getCards($), getArchitect($)])
     if (cards.some(c => c.id === id)) {
       const step = { model: e.model, usage: result.usage, stopReason: result.stopReason }
-      await update($, agents, list => listOf<unknown>(list).map(normalizeCard).map(c => (c.id === id ? applyStep(c, step) : c)))
+      await update($, agents, list => cardsOf(list).map(c => (c.id === id ? applyStep(c, step) : c)))
       if (result.stopReason === 'max_tokens') await say($, await whoIs($, id), 'hit max_tokens', 'error', id)
     } else if (!a.ids.includes(id)) {
       const now = await $.clock.now()
-      await update($, loops, l => stepLoop(listOf<Loop>(l), id, now))
+      await update($, loops, l => stepLoop(recordsOf<Loop>(l, 'id'), id, now))
     }
     return result
   })
@@ -1019,118 +1057,128 @@ export const register: Register = (on, options) => {
 
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (e.tool_use_id) {
-      const check: Check = {
-        id: e.tool_use_id,
-        tool: e.tool,
-        bucket: bucketOf(e.tool),
-        verdict: verdict.decision === 'allow' ? 'rule' : verdict.decision,
-        inSubagent: Boolean(callLoop.get(e.tool_use_id)),
-        detail: shorten(describeInput(e.tool, e.input), 90),
-        at: await $.clock.now(),
+    await quietly($, 'permission note', async () => {
+      if (e.tool_use_id) {
+        const check: Check = {
+          id: e.tool_use_id,
+          tool: e.tool,
+          bucket: bucketOf(e.tool),
+          verdict: verdict.decision === 'allow' ? 'rule' : verdict.decision,
+          inSubagent: Boolean(callLoop.get(e.tool_use_id)),
+          detail: shorten(describeInput(e.tool, e.input), 90),
+          at: await $.clock.now(),
+        }
+        await update($, gate, g => recordCheck(normalizeGate(g), check))
+        // An ask the person must answer is announced if it still waits a while later (not in auto mode: the classifier answers).
+        if (check.verdict === 'ask' && (await getMain($)).mode !== 'auto')
+          scheduleAskAlert($, alertCfg, check.id, check.tool, check.detail, async () => (await getGate($)).recent.some(c => c.id === check.id && c.verdict === 'ask'))
+        // The status line updates when the call settles; only a refusal ends here.
+        if (verdict.decision === 'deny') {
+          await say($, 'gate', `denied by rule · ${check.detail}`, 'error')
+          await refreshStatus($, cfg)
+        }
       }
-      await update($, gate, g => recordCheck(normalizeGate(g), check))
-      // An ask the person must answer is announced if it still waits a while later (not in auto mode: the classifier answers).
-      if (check.verdict === 'ask' && (await getMain($)).mode !== 'auto')
-        scheduleAskAlert($, alertCfg, check.id, check.tool, check.detail, async () => (await getGate($)).recent.some(c => c.id === check.id && c.verdict === 'ask'))
-      // The status line updates when the call settles; only a refusal ends here.
-      if (verdict.decision === 'deny') {
-        await say($, 'gate', `denied by rule · ${check.detail}`, 'error')
-        await refreshStatus($, cfg)
-      }
-    }
+    })
     return verdict
   })
 
   on('tool.call', async ($, e, next) => {
     callLoop.set(e.tool_use_id, e.agentId ?? null)
-    if (!e.agentId) mainTool = { tool: e.tool, text: shorten(describeInput(e.tool, e), 64), at: await $.clock.now(), endAt: null }
-    // The pet acts out the main loop's tool; written only when what it acts out changes.
-    if (cfg.pet && !e.agentId) {
-      const m0 = await getMain($)
-      if (petToolKind(m0.tool ?? null) !== petToolKind(e.tool)) await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), tool: e.tool }))
-    }
-    const ran = await next(e).finally(() => callLoop.delete(e.tool_use_id))
-    const didRun = ran.deny === undefined
-    // Settle this call's pending ask, if it had one; skip the write (and the redraw) otherwise.
-    const g0 = await getGate($)
-    const isSettled = settleCheck(g0, e.tool_use_id, didRun) !== g0
-    if (!e.agentId && mainTool !== null && mainTool.tool === e.tool) mainTool = { ...mainTool, endAt: await $.clock.now() }
-    if (isSettled) {
-      await update($, gate, g => settleCheck(normalizeGate(g), e.tool_use_id, didRun))
-      settleAskAlert(e.tool_use_id)
-      // The time the person took to answer, for the day's history.
-      const asked = g0.recent.find(c => c.id === e.tool_use_id && c.verdict === 'ask')
-      if (asked) {
-        const at = await $.clock.now()
-        void recordDay($, at, { asks: 1, askWaitMs: Math.max(0, at - asked.at) })
+    await quietly($, 'tool start', async () => {
+      if (!e.agentId) mainTool = { tool: e.tool, text: shorten(describeInput(e.tool, e), 64), at: await $.clock.now(), endAt: null }
+      // The pet acts out the main loop's tool; written only when what it acts out changes.
+      if (cfg.pet && !e.agentId) {
+        const m0 = await getMain($)
+        if (petToolKind(m0.tool ?? null) !== petToolKind(e.tool)) await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), tool: e.tool }))
       }
+    })
+    let ran: Awaited<ReturnType<typeof next>>
+    try {
+      ran = await next(e)
+    } catch (err) {
+      // Interrupted, with no result to settle by: whatever it asked waits on nobody now.
+      await quietly($, 'ask settle', async () => void (await settleAsk($, e.tool_use_id, false)))
+      throw err
+    } finally {
+      callLoop.delete(e.tool_use_id)
     }
-    // A background agent hands its report back through this tool; an architect's report is its advice.
-    if (String(e.tool) === 'SubagentHandback') {
-      const message = (e as unknown as { message?: unknown }).message
-      const a = e.agentId ? await getArchitect($) : null
-      if (a && e.agentId && a.ids.includes(e.agentId) && typeof message === 'string') {
-        const advice = adviceLine(message)
-        if (advice) await noteAdvice($, cfg, advice, e.agentId)
+    await quietly($, 'tool result', async () => {
+      const didRun = ran.deny === undefined
+      // An approved ask settled at tool.run; what is left here was refused, or never reached the run.
+      const isSettled = await settleAsk($, e.tool_use_id, didRun)
+      if (!e.agentId && mainTool !== null && mainTool.tool === e.tool) mainTool = { ...mainTool, endAt: await $.clock.now() }
+      // A background agent hands its report back through this tool; an architect's report is its advice.
+      if (String(e.tool) === 'SubagentHandback') {
+        const message = (e as unknown as { message?: unknown }).message
+        const a = e.agentId ? await getArchitect($) : null
+        if (a && e.agentId && a.ids.includes(e.agentId) && typeof message === 'string') {
+          const advice = adviceLine(redact(message))
+          if (advice) await noteAdvice($, cfg, advice, e.agentId)
+        }
+        return
       }
-      return ran
-    }
-    if (String(e.tool).endsWith('__getJiraIssue') && didRun && ran.isError !== true) {
-      await noteJira($, e as unknown as Record<string, unknown>, ran.result, cfg.jiraSite).catch(err => say($, 'flightdeck', `jira read failed: ${String(err)}`, 'error'))
-      // A newly anchored issue's epic is read once when the person allowed active reads.
-      void autoEpic($, cfg.jiraFetch, cfg.jiraSite)
-      return ran
-    }
-    if (String(e.tool).endsWith('__searchJiraIssuesUsingJql') && didRun && ran.isError !== true) {
-      await noteEpic($, e as unknown as Record<string, unknown>, ran.result).catch(err => say($, 'os-deck', `epic read failed: ${String(err)}`, 'error'))
-      return ran
-    }
-    if (PLAN_TOOLS.has(e.tool)) {
-      // The task list is the session's, shared with subagents; a todo list is each loop's own, so only the main one's.
-      const isOwnTodos = e.tool === 'TodoWrite' && Boolean(e.agentId)
-      if (didRun && ran.isError !== true && !isOwnTodos) {
-        const input = e as unknown as Record<string, unknown>
-        const [before, now] = await Promise.all([getPlan($), $.clock.now()])
-        await notePlan($, e.tool, input, ran.result, now)
-        if (e.tool === 'TaskUpdate') await afterPlanChange($, before, input, e.agentId, now).catch(err => say($, 'flightdeck', `plan update failed: ${String(err)}`, 'error'))
-        if (e.tool === 'TaskUpdate' && input.status === 'completed') void recordDay($, now, { tasks: 1 })
+      if (String(e.tool).endsWith('__getJiraIssue') && didRun && ran.isError !== true) {
+        await noteJira($, e as unknown as Record<string, unknown>, ran.result, cfg.jiraSite).catch(err => say($, 'flightdeck', `jira read failed: ${String(err)}`, 'error'))
+        // A newly anchored issue's epic is read once when the person allowed active reads.
+        void autoEpic($, cfg.jiraFetch, cfg.jiraSite)
+        return
       }
-      if (isSettled) await refreshStatus($, cfg)
-      return ran
-    }
-    if (e.tool === 'Agent') {
-      if (isSettled) await refreshStatus($, cfg)
-      return ran
-    }
-    const hasFailed = didRun && ran.isError === true
-    const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
-    if (didRun && (isEdit || e.tool === 'Bash')) void pokeGit($, cfg.panels.includes('git'), false)
-    // A push or a gh pr command changes what the GitHub section shows: read it again now.
-    if (didRun && (e.tool === 'Bash' || e.tool === 'PowerShell') && /\bgit\s+push\b|\bgh\s+pr\b/.test(String((e as unknown as { command?: unknown }).command ?? ''))) void pokeGithub($, cfg, true)
-    const t0 = await getTurn($)
-    if (isEdit || hasFailed || (!e.agentId && t0.errorStreak > 0)) {
-      const failedAt = hasFailed && !e.agentId ? await $.clock.now() : null
-      await update($, turn, t => {
-        const x = afterCall(normalize(DEFAULT_TURN, t), { inSubagent: Boolean(e.agentId), hasFailed, isEdit })
-        return failedAt !== null ? { ...x, lastErrorAt: failedAt } : x
-      })
-    }
-    const text = shorten(describeInput(e.tool, e), 64)
-    if (e.agentId) {
-      const id = e.agentId
-      await update($, agents, list =>
-        listOf<unknown>(list)
-          .map(normalizeCard)
-          .map(c => (c.id === id ? noteTool(c, { tool: e.tool, text, isError: hasFailed || ran.deny !== undefined }) : c)),
-      )
-    }
-    // The log keeps what is worth a glance: refusals, errors and edits; the rest is on the cards.
-    if (ran.deny !== undefined) await say($, await whoIs($, e.agentId), `${text}  denied`, 'error', e.agentId ?? null)
-    else if (hasFailed) await say($, await whoIs($, e.agentId), `${text}  ✗`, 'error', e.agentId ?? null)
-    else if (isEdit) await say($, await whoIs($, e.agentId), text, 'info', e.agentId ?? null)
-    if (isSettled || !didRun) await refreshStatus($, cfg)
+      if (String(e.tool).endsWith('__searchJiraIssuesUsingJql') && didRun && ran.isError !== true) {
+        await noteEpic($, e as unknown as Record<string, unknown>, ran.result).catch(err => say($, 'os-deck', `epic read failed: ${String(err)}`, 'error'))
+        return
+      }
+      if (PLAN_TOOLS.has(e.tool)) {
+        // The task list is the session's, shared with subagents; a todo list is each loop's own, so only the main one's.
+        const isOwnTodos = e.tool === 'TodoWrite' && Boolean(e.agentId)
+        if (didRun && ran.isError !== true && !isOwnTodos) {
+          const input = e as unknown as Record<string, unknown>
+          const [before, now] = await Promise.all([getPlan($), $.clock.now()])
+          await notePlan($, e.tool, input, ran.result, now)
+          if (e.tool === 'TaskUpdate') await afterPlanChange($, before, input, e.agentId, now).catch(err => say($, 'flightdeck', `plan update failed: ${String(err)}`, 'error'))
+          if (e.tool === 'TaskUpdate' && input.status === 'completed') void recordDay($, now, { tasks: 1 })
+        }
+        if (isSettled) await refreshStatus($, cfg)
+        return
+      }
+      if (e.tool === 'Agent') {
+        if (isSettled) await refreshStatus($, cfg)
+        return
+      }
+      const hasFailed = didRun && ran.isError === true
+      const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
+      if (didRun && (isEdit || e.tool === 'Bash')) void pokeGit($, cfg.panels.includes('git'), false)
+      // A push or a gh pr command changes what the GitHub section shows: read it again now.
+      if (didRun && (e.tool === 'Bash' || e.tool === 'PowerShell') && /\bgit\s+push\b|\bgh\s+pr\b/.test(String((e as unknown as { command?: unknown }).command ?? ''))) void pokeGithub($, cfg, true)
+      const t0 = await getTurn($)
+      if (isEdit || hasFailed || (!e.agentId && t0.errorStreak > 0)) {
+        const failedAt = hasFailed && !e.agentId ? await $.clock.now() : null
+        await update($, turn, t => {
+          const x = afterCall(normalize(DEFAULT_TURN, t), { inSubagent: Boolean(e.agentId), hasFailed, isEdit })
+          return failedAt !== null ? { ...x, lastErrorAt: failedAt } : x
+        })
+      }
+      const text = shorten(describeInput(e.tool, e), 64)
+      if (e.agentId) {
+        const id = e.agentId
+        await update($, agents, list =>
+          cardsOf(list)
+            .map(c => (c.id === id ? noteTool(c, { tool: e.tool, text, isError: hasFailed || ran.deny !== undefined }) : c)),
+        )
+      }
+      // The log keeps what is worth a glance: refusals, errors and edits; the rest is on the cards.
+      if (ran.deny !== undefined) await say($, await whoIs($, e.agentId), `${text}  denied`, 'error', e.agentId ?? null)
+      else if (hasFailed) await say($, await whoIs($, e.agentId), `${text}  ✗`, 'error', e.agentId ?? null)
+      else if (isEdit) await say($, await whoIs($, e.agentId), text, 'info', e.agentId ?? null)
+      if (isSettled || !didRun) await refreshStatus($, cfg)
+    })
     return ran
+  })
+
+  // Fires once whoever decides an ask has allowed it, before the tool runs: the wait ends here, not
+  // when the tool finishes.
+  on('tool.run', async ($, e, next) => {
+    await quietly($, 'ask settle', async () => void (await settleAsk($, e.tool_use_id, true)))
+    return next(e)
   })
 
   // A server-side review tool never reaches tool.call: it shows only in the assistant's rows.
@@ -1169,8 +1217,8 @@ export const register: Register = (on, options) => {
         const x = normalize(DEFAULT_ARCHITECT, a)
         return { ...x, ids: [...listOf<string>(x.ids), id].slice(-40) }
       })
-      await update($, loops, l => listOf<Loop>(l).filter(x => x.id !== id))
-      await consultStarted($, cfg, id, e.subagentType.split(':').pop() ?? 'agent', e.description ?? '')
+      await update($, loops, l => recordsOf<Loop>(l, 'id').filter(x => x.id !== id))
+      await consultStarted($, cfg, id, redact(e.subagentType.split(':').pop() ?? 'agent'), redact(e.description ?? ''))
       return started
     }
     // A resumed agent spawns again under its id: its card runs again, with what it has done so far.
@@ -1178,9 +1226,9 @@ export const register: Register = (on, options) => {
     const card: AgentCard = {
       ...(prior ?? normalizeCard({})),
       id,
-      type: e.name ?? e.subagentType,
+      type: redact(e.name ?? e.subagentType),
       model: started.model,
-      description: e.description || (prior?.description ?? ''),
+      description: redact(e.description || (prior?.description ?? '')),
       status: 'running',
       spawnedAt: await $.clock.now(),
       endedAt: null,
@@ -1189,7 +1237,7 @@ export const register: Register = (on, options) => {
     }
     await update($, agents, list => [...cardsOf(list).filter(c => c.id !== id), card].slice(-24))
     await update($, plan, p => planLinkAgent(normalizePlan(p), id))
-    await update($, loops, l => listOf<Loop>(l).filter(x => x.id !== id))
+    await update($, loops, l => recordsOf<Loop>(l, 'id').filter(x => x.id !== id))
     await say($, shorten(cardTitle(card), 12), `spawned · ${card.type}`, 'info', id)
     await refreshStatus($, cfg)
     return started
@@ -1229,15 +1277,14 @@ export const register: Register = (on, options) => {
     if (cards.some(c => c.id === id)) {
       const status = e.reason === 'answer' ? 'done' : e.reason === 'aborted' ? 'stopped' : 'failed'
       await update($, agents, list =>
-        listOf<unknown>(list)
-          .map(normalizeCard)
-          .map(c => (c.id === id ? { ...c, status, endedAt: now, answer: shorten(e.answer, 400) } : c)),
+        cardsOf(list)
+          .map(c => (c.id === id ? { ...c, status, endedAt: now, answer: shorten(redact(e.answer), 400) } : c)),
       )
       const card = cards.find(c => c.id === id)
       const took = card ? fmtDuration(now - card.spawnedAt) : ''
       await say($, await whoIs($, id), status === 'done' ? `done · ${took}` : status, status === 'done' ? 'done' : 'error', id)
     } else {
-      await update($, loops, l => listOf<Loop>(l).map(x => (x.id === id ? { ...x, isDone: true, lastAt: now } : x)))
+      await update($, loops, l => recordsOf<Loop>(l, 'id').map(x => (x.id === id ? { ...x, isDone: true, lastAt: now } : x)))
     }
     await refreshStatus($, cfg)
     return done

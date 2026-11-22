@@ -1,6 +1,7 @@
 // Pure data: defaults, reducers, formatting and layout math. Nothing here touches `$`, so every
 // behaviour is testable directly (the test kit cannot raise a subagent's tool call or a
 // permission check inside a call; these functions are what the hooks apply).
+import { redact, redactDeep } from './redact'
 import { SKIN_PALETTES } from './skin-palettes'
 import type {
   Account,
@@ -33,7 +34,10 @@ import type {
   View,
 } from '../types'
 
-export const SCHEMA_VERSION = 2
+export { redact, redactDeep }
+
+/** 3: text saved before every path was redacted is redacted once. */
+export const SCHEMA_VERSION = 3
 
 // ---------------------------------------------------------------- defaults
 
@@ -56,24 +60,41 @@ export const DEFAULT_ROSTER: Roster = { architectTypes: [] }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-/** A stored object merged over its defaults, so a value saved under an older shape still reads. */
-export const normalize = <T extends object>(def: T, stored: unknown): T =>
-  isObject(stored) ? ({ ...def, ...stored } as T) : def
+/**
+ * A stored object merged over its defaults, so a value saved under an older shape still reads. A
+ * field of another type than its default's is the default; a null default takes any value.
+ */
+export const normalize = <T extends object>(def: T, stored: unknown): T => {
+  if (!isObject(stored)) return def
+  const out: Record<string, unknown> = { ...def, ...stored }
+  for (const [k, d] of Object.entries(def)) {
+    if (d === null || d === undefined) continue
+    const v = out[k]
+    if (v === null || typeof v !== typeof d || Array.isArray(v) !== Array.isArray(d)) out[k] = d
+  }
+  return out as T
+}
 
-/** A stored list, or empty when what is stored is not a list. */
-export const listOf = <T>(stored: unknown): T[] => (Array.isArray(stored) ? (stored as T[]) : [])
+/** A stored list without its holes, or empty when what is stored is not a list. */
+export const listOf = <T>(stored: unknown): T[] => (Array.isArray(stored) ? (stored.filter(x => x !== null && x !== undefined) as T[]) : [])
+
+/** A stored list's records that carry each named field as a string; anything else is dropped. */
+export const recordsOf = <T>(stored: unknown, ...fields: string[]): T[] =>
+  listOf<unknown>(stored).filter(x => isObject(x) && fields.every(f => typeof x[f] === 'string')) as T[]
+
+const BUCKETS: readonly string[] = ['file', 'shell', 'other']
 
 export const normalizeGate = (stored: unknown): Gate => {
   const g = normalize(DEFAULT_GATE, stored)
   const totals = normalize(DEFAULT_GATE.totals, g.totals)
   return {
-    recent: listOf<Check>(g.recent),
+    recent: recordsOf<Check>(g.recent, 'id', 'tool', 'bucket', 'verdict', 'detail').filter(r => BUCKETS.includes(r.bucket)),
     totals: { file: normalize(ZERO, totals.file), shell: normalize(ZERO, totals.shell), other: normalize(ZERO, totals.other) },
   }
 }
 
-export const normalizeCard = (stored: unknown): AgentCard =>
-  normalize<AgentCard>(
+export const normalizeCard = (stored: unknown): AgentCard => {
+  const card = normalize<AgentCard>(
     {
       id: '',
       type: 'agent',
@@ -91,11 +112,13 @@ export const normalizeCard = (stored: unknown): AgentCard =>
     },
     stored,
   )
+  return { ...card, tools: recordsOf<ToolNote>(card.tools, 'tool', 'text') }
+}
 
 /** The stored cards, one per agent, the latest of an id in its place: a card drawn twice fails the whole pane. */
 export const cardsOf = (stored: unknown): AgentCard[] => {
   const byId = new Map<string, AgentCard>()
-  for (const card of listOf<unknown>(stored).map(normalizeCard)) {
+  for (const card of recordsOf<unknown>(stored, 'id').map(normalizeCard)) {
     byId.delete(card.id)
     byId.set(card.id, card)
   }
@@ -103,10 +126,10 @@ export const cardsOf = (stored: unknown): AgentCard[] => {
 }
 
 export const normalizeLog = (stored: unknown): LogLine[] =>
-  listOf<Record<string, unknown>>(stored).map(l => ({
+  recordsOf<Record<string, unknown>>(stored).map(l => ({
     at: typeof l.at === 'number' ? l.at : 0,
-    who: String(l.who ?? ''),
-    text: String(l.text ?? ''),
+    who: typeof l.who === 'string' ? l.who : '',
+    text: typeof l.text === 'string' ? l.text : '',
     agentId: typeof l.agentId === 'string' ? l.agentId : null,
     kind: l.kind === 'error' || l.kind === 'consult' || l.kind === 'done' ? l.kind : 'info',
   }))
@@ -162,6 +185,15 @@ export type Config = {
   alertTurnMin: number
 }
 
+/**
+ * A configured executable: a bare name, which the engine never takes from the current directory, or
+ * an absolute path. A relative path would be looked up inside whatever repository is open.
+ */
+export const executableOf = (value: string, fallback: string) => {
+  const v = value.trim()
+  return /^[\w+-][\w.+-]*$/.test(v) || /^([a-z]:[\\/]|\/|\\\\)/i.test(v) ? v : fallback
+}
+
 const safeRegExp = (source: string, fallback: string) => {
   try {
     return new RegExp(source || fallback, 'i')
@@ -205,10 +237,10 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
     openOnStart: bool('openOnStart', true),
     statusLine: bool('statusLine', true),
     cswap: bool('cswap', true),
-    cswapCommand: str('cswapCommand', 'cswap').trim() || 'cswap',
+    cswapCommand: executableOf(str('cswapCommand', 'cswap'), 'cswap'),
     pet: bool('pet', true),
     github: bool('github', true),
-    ghCommand: str('ghCommand', 'gh').trim() || 'gh',
+    ghCommand: executableOf(str('ghCommand', 'gh'), 'gh'),
     alerts: bool('alerts', true),
     alertAfterS: typeof o.alertAfterS === 'number' && o.alertAfterS >= 5 ? Math.min(3600, Math.round(o.alertAfterS)) : 30,
     alertTurnMin: typeof o.alertTurnMin === 'number' && o.alertTurnMin >= 1 ? Math.min(600, Math.round(o.alertTurnMin)) : 2,
@@ -415,21 +447,6 @@ export const limitLabel = (kind: string) =>
     .replace(/seven[_ -]?days?/i, '7d')
     .replace(/[_-]+/g, ' ')
     .trim()
-
-// ---------------------------------------------------------------- redaction
-
-const SECRETS: [RegExp, string][] = [
-  [/(authorization\s*[:=]\s*)(bearer\s+|basic\s+)?\S+/gi, '$1$2•••'],
-  [/\b(bearer)\s+[A-Za-z0-9._~+/-]{8,}=*/gi, '$1 •••'],
-  [/\b(sk|pk|rk|ghp|gho|ghs|github_pat|xox[abprs])[-_][A-Za-z0-9_-]{8,}/g, '•••'],
-  [/((?:api[_-]?key|access[_-]?token|token|secret|password|passwd|pwd)\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1•••'],
-  [/(--(?:token|password|api-key|secret)[= ])\S+/gi, '$1•••'],
-  [/(\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)=)\S+/g, '$1•••'],
-  [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:)[^\s@]+@/gi, '$1•••@'],
-]
-
-/** What the gate drill-down may store: credentials masked before anything is written to state. */
-export const redact = (s: string) => SECRETS.reduce((t, [re, to]) => t.replace(re, to), s)
 
 // ---------------------------------------------------------------- tools and gate
 
@@ -721,6 +738,28 @@ const blankTask = (id: string): PlanTask => ({
   source: 'task',
 })
 
+/** An issue key as Jira writes one, and nothing else: keys are quoted in the system prompt. */
+const JIRA_KEY = /^[A-Z][A-Z0-9_]{0,19}-\d{1,9}$/i
+const isJiraKey = (v: unknown): v is string => typeof v === 'string' && JIRA_KEY.test(v)
+
+const storedRef = (v: unknown): JiraRef | null => {
+  if (!isObject(v) || !isJiraKey(v.key)) return null
+  const str = (x: unknown) => (typeof x === 'string' ? x : '')
+  return { key: v.key, summary: str(v.summary), type: str(v.type), status: str(v.status), isDone: v.isDone === true }
+}
+
+const storedIssue = (v: unknown): JiraIssue | null => {
+  const ref = storedRef(v)
+  if (!ref || !isObject(v)) return null
+  return {
+    ...ref,
+    assignee: typeof v.assignee === 'string' ? v.assignee : '',
+    site: typeof v.site === 'string' ? v.site : null,
+    parent: storedRef(v.parent),
+    subtasks: listOf<unknown>(v.subtasks).map(storedRef).filter((r): r is JiraRef => r !== null),
+  }
+}
+
 export const normalizePlan = (stored: unknown): Plan => {
   const p = normalize(DEFAULT_PLAN, stored)
   const strs = (v: unknown) => listOf<unknown>(v).filter((x): x is string => typeof x === 'string')
@@ -728,14 +767,17 @@ export const normalizePlan = (stored: unknown): Plan => {
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   // Field by field, as normalizeCard does: a stored shape this build cannot read must not break the render.
   const counts = isObject(p.history) ? Object.fromEntries(Object.entries(p.history).filter((e): e is [string, number] => typeof e[1] === 'number')) : {}
+  const jira = storedIssue(p.jira)
+  // The prompt names Jira groups by key alone; they are drawn, and matched, by key and summary.
+  const labels = new Map((jira ? [jira, ...(jira.parent ? [jira.parent] : []), ...jira.subtasks] : []).map(r => [r.key, jiraLabel(r)]))
   return {
     groups: strs(p.groups),
     history: counts,
     rebuilt: p.rebuilt === true,
-    jira: isObject(p.jira) && typeof p.jira.key === 'string' ? (p.jira as unknown as JiraIssue) : null,
+    jira,
     cited: strs(p.cited).slice(-10),
     epic:
-      isObject(p.epic) && typeof p.epic.key === 'string'
+      isObject(p.epic) && isJiraKey(p.epic.key)
         ? {
             key: p.epic.key,
             at: typeof p.epic.at === 'number' ? p.epic.at : 0,
@@ -759,7 +801,7 @@ export const normalizePlan = (stored: unknown): Plan => {
         subject: str(t.subject),
         activeForm: str(t.activeForm),
         status: (STATUSES.includes(str(t.status)) ? t.status : 'pending') as TaskStatus,
-        group: strs(t.group),
+        group: strs(t.group).map(g => labels.get(g) ?? g),
         blockedBy: strs(t.blockedBy),
         agents: strs(t.agents),
         startedAt: num(t.startedAt),
@@ -1051,7 +1093,9 @@ export const historyBefore = (stored: unknown, sessionId: string, now: number): 
  */
 export const planApply = (p: Plan, tool: string, input: Record<string, unknown>, result: unknown, now: number | null): Plan => {
   const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
-  const res = isObject(result) ? result : {}
+  // Task text is stored, drawn and quoted back in the prompt.
+  input = redactDeep(input)
+  const res: Record<string, unknown> = isObject(result) ? redactDeep(result) : {}
   if (tool === 'TaskCreate') {
     const task = isObject(res.task) ? res.task : {}
     const id = str(task.id)
@@ -1101,14 +1145,14 @@ export const jiraKeysIn = (text: string): string[] => [
 ]
 
 const refOf = (x: unknown): JiraRef | null => {
-  if (!isObject(x) || typeof x.key !== 'string') return null
+  if (!isObject(x) || !isJiraKey(x.key)) return null
   const f = isObject(x.fields) ? x.fields : {}
   const status = isObject(f.status) ? f.status : {}
   const cat = isObject(status.statusCategory) ? status.statusCategory : {}
   return {
     key: x.key,
-    summary: typeof f.summary === 'string' ? f.summary : '',
-    type: isObject(f.issuetype) && typeof f.issuetype.name === 'string' ? f.issuetype.name : '',
+    summary: typeof f.summary === 'string' ? redact(f.summary) : '',
+    type: isObject(f.issuetype) && typeof f.issuetype.name === 'string' ? redact(f.issuetype.name) : '',
     status: typeof status.name === 'string' ? status.name : '',
     isDone: cat.key === 'done',
   }
@@ -1177,12 +1221,15 @@ export const jiraSkeleton = (j: JiraIssue | null | undefined, tasks: readonly Pl
     }))
 }
 
-/** What the prompt tells Claude about the anchored issue: the group paths to file tasks under. */
+/**
+ * What the prompt tells Claude about the anchored issue: the group paths to file tasks under, by key
+ * alone. Whoever can edit a ticket writes its title and type, so neither may enter the system prompt.
+ */
 export const jiraHint = (j: JiraIssue): string => {
-  const root = jiraRoot(j)
-  const subs = j.subtasks.filter(s => !s.isDone).map(s => `"${[...root, jiraLabel(s)].join(' / ')}"`)
+  const root = j.parent && j.subtasks.length === 0 ? [j.parent.key, j.key] : [j.key]
+  const subs = j.subtasks.filter(s => !s.isDone).map(s => `"${[...root, s.key].join(' / ')}"`)
   return (
-    `The work is anchored to Jira ${j.key} (${j.type || 'issue'}: ${j.summary})${j.parent ? `, under ${j.parent.key} (${j.parent.type}: ${j.parent.summary})` : ''}. ` +
+    `The work is anchored to Jira ${j.key}${j.parent ? `, under ${j.parent.key}` : ''}. ` +
     `File its tasks under the group path "${root.join(' / ')}"` +
     (subs.length > 0 ? `, and where a task belongs to one of its Jira subtasks, under that subtask's path: ${subs.slice(0, 8).join(', ')}.` : '.')
   )
@@ -1196,7 +1243,7 @@ export const DEFAULT_GIT: Git = { repos: [], at: 0 }
 export const parseGitStatus = (stdout: string, name: string): GitRepo => {
   const repo: GitRepo = { name, branch: '', ahead: 0, behind: 0, base: null, baseAhead: 0, baseBehind: 0, staged: 0, modified: 0, untracked: 0, conflicts: 0 }
   for (const line of stdout.split('\n')) {
-    if (line.startsWith('# branch.head ')) repo.branch = line.slice(14).trim()
+    if (line.startsWith('# branch.head ')) repo.branch = redact(line.slice(14).trim())
     else if (line.startsWith('# branch.ab ')) {
       const m = /\+(\d+) -(\d+)/.exec(line)
       if (m) [repo.ahead, repo.behind] = [Number(m[1]), Number(m[2])]
@@ -1310,7 +1357,7 @@ export const jiraSearchOf = (result: unknown): JiraChild[] | null => {
   }
   const found = Array.isArray(x) ? x : isObject(x) ? (x.issues ?? x.values ?? (isObject(x.data) ? x.data.issues : undefined)) : undefined
   if (!Array.isArray(found)) return null
-  return found
+  return redactDeep(found)
     .map(i => {
       const ref = refOf(i)
       if (!ref) return null
@@ -1469,9 +1516,9 @@ export const parseCswapSwitch = (stdout: string): { isSwitched: boolean; to: str
   }
   if (!d || typeof d !== 'object') return null
   const r = d as { switched?: unknown; to?: { email?: unknown } | null; message?: unknown; error?: { message?: unknown } | null }
-  if (r.error && typeof r.error === 'object') return { isSwitched: false, to: null, message: typeof r.error.message === 'string' ? r.error.message : 'cswap failed' }
+  if (r.error && typeof r.error === 'object') return { isSwitched: false, to: null, message: typeof r.error.message === 'string' ? redact(r.error.message) : 'cswap failed' }
   if (typeof r.switched !== 'boolean') return null
-  return { isSwitched: r.switched, to: typeof r.to?.email === 'string' ? r.to.email : null, message: typeof r.message === 'string' ? r.message : '' }
+  return { isSwitched: r.switched, to: typeof r.to?.email === 'string' ? r.to.email : null, message: typeof r.message === 'string' ? redact(r.message) : '' }
 }
 
 /**

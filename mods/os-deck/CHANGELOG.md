@@ -2,6 +2,17 @@
 
 **English** · [Português](CHANGELOG.pt-BR.md)
 
+## os-deck 0.4.1
+
+Security and reliability fixes.
+
+- **Reading git never runs the repository.** `git status` is read with the filters of the repository's own config turned off, without entering submodules and without fetching. Your global and system filters (Git LFS included) still apply.
+- **Configured executables.** `ghCommand` and `cswapCommand` take a bare name or an absolute path; a relative path falls back to the default.
+- **Redaction everywhere.** Agent answers and descriptions, architect advice, your prompt's log line, task, Jira and pull request text, and errors are masked before they are stored. Many more credential formats are covered, state saved by older versions is masked once, and the rules take linear time.
+- **Jira in the prompt.** The system prompt names issues by key alone; a ticket's title and type no longer enter it. The dock still shows the titles.
+- **Alerts.** An ask stops waiting when you approve it, not when the tool finishes, and when its call is interrupted. The history's waiting time follows.
+- **Hooks and stored state.** A failure in the dock's own work does not reach the tool call it watches, and a bad stored value is dropped instead of breaking every later write.
+
 ## os-deck 0.4.0
 
 - **Cubes are the real subagents.** Each cube wears its subagent's colour, by the order it was spawned, and its row in the plan gets a `■` in the same colour. When a subagent finishes, its cube holds still a moment under a `✦`; when it fails, it turns red.

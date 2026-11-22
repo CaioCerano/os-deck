@@ -2,6 +2,17 @@
 
 [English](CHANGELOG.md) · **Português**
 
+## os-deck 0.4.1
+
+Correções de segurança e confiabilidade.
+
+- **Ler o git nunca executa o repositório.** O `git status` roda com os filtros da config do próprio repositório desligados, sem entrar em submódulos e sem fetch. Os seus filtros globais e de sistema (Git LFS incluído) continuam valendo.
+- **Executáveis configurados.** `ghCommand` e `cswapCommand` aceitam um nome simples ou um caminho absoluto; um caminho relativo volta para o padrão.
+- **Redação em tudo.** Respostas e descrições de agentes, conselhos do architect, a linha do seu prompt no log, textos de tasks, do Jira e de PRs, e erros são mascarados antes de serem salvos. Muitos outros formatos de credencial são cobertos, o estado salvo por versões antigas é mascarado uma vez, e as regras rodam em tempo linear.
+- **Jira no prompt.** O system prompt cita as issues só pela chave; título e tipo do ticket não entram mais. O dock continua mostrando os títulos.
+- **Alertas.** Um pedido deixa de esperar quando você aprova, não quando a ferramenta termina, e também quando a chamada é interrompida. O tempo de espera do histórico acompanha.
+- **Hooks e estado salvo.** Uma falha no trabalho do dock não chega à chamada de ferramenta que ele observa, e um valor salvo inválido é descartado em vez de quebrar toda escrita seguinte.
+
 ## os-deck 0.4.0
 
 - **Cubos = subagentes de verdade.** Cada cubo tem a cor do subagente na ordem em que foi criado, e a linha dele no plano ganha um `■` da mesma cor. Quando um subagente termina, o cubo fica parado um instante com um brilho `✦`; quando falha, fica vermelho.

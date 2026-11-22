@@ -462,7 +462,9 @@ test('jira: a story is the root, its open subtasks are placeholders until Claude
   let p = planCreate(DEFAULT_PLAN, { id: '1', subject: 'wire the query', activeForm: '', group: [...jiraRoot(j), sub] })
   sk = jiraSkeleton(j, p.tasks)
   expect(sk.map(t => t.group.at(-1))).toEqual(['ABC-401 Tela de consulta'])
-  expect(jiraHint(j)).toContain(`"ABC-363 Permitir a consulta dos contratos / ${sub}"`)
+  // By key alone: a ticket's own words never reach the system prompt.
+  expect(jiraHint(j)).toContain('"ABC-363 / ABC-407"')
+  expect(jiraHint(j)).not.toContain('Permitir')
   // A subtask anchored alone sits under its story.
   const lone = jiraIssueOf({ key: 'ABC-407', fields: { summary: 'Integrar', issuetype: { name: 'Sub-Tarefa' }, status: jiraStatus('A fazer', 'new'), parent: { key: 'ABC-363', fields: { summary: 'Permitir', issuetype: { name: 'História' }, status: jiraStatus('x', 'new') } }, subtasks: [] } })
   expect(lone ? jiraRoot(lone) : null).toEqual(['ABC-363 Permitir', 'ABC-407 Integrar'])
