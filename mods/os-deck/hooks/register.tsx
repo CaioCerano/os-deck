@@ -918,7 +918,7 @@ export const register: Register = (on, options) => {
       await $.command.register({
         name,
         description: 'OS-Deck, the live agent dashboard: open, close, reset, or set the layout',
-        argumentHint: '[open|close|reset|demo|epic|pet|today|history|github|proof [setup|check|run|history]|account [n|email|next]|hide <section>|show <section>|sections|layout auto|compact|wide|mini]',
+        argumentHint: '[open|close|reset|demo|epic|pet|today|history|github|proof [setup|check|history]|account [n|email|next]|hide <section>|show <section>|sections|layout auto|compact|wide|mini]',
       })
     await migrate($)
     await quietly($, 'proof start', () => proofSessionStarted($, proofOps($)))

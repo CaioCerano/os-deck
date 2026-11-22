@@ -82,7 +82,7 @@ O painel abre ao lado da conversa no terminal em tela cheia a partir de 110 colu
 | `/os-deck proof` | Diz o que o Agent Proof liberou e viu nesta sessão |
 | `/os-deck proof setup [pasta]` | Mostra os checks encontrados, para liberar no dock |
 | `/os-deck proof check <test\|typecheck\|lint\|build> [--dir <pasta>] -- <comando>` | Rascunha um check que você indica |
-| `/os-deck proof run` / `history` | Roda agora os checks liberados, ou lista as execuções salvas |
+| `/os-deck proof history` | Lista as execuções salvas |
 | `/os-deck sections` | Lista as seções e quais estão ocultas |
 | `/os-deck layout <auto\|compact\|wide\|mini>` | Troca o layout |
 | `/os-deck epic` | Lê do Jira o épico da issue ancorada |
@@ -118,7 +118,7 @@ Verified fala dos checks. Se a tarefa atende aos critérios de aceite é a revis
 No que ele confia:
 
 - Nunca na mensagem de um agente, na saída de uma ferramenta ou em "os testes passam", e nunca no histórico salvo, que é só histórico.
-- Só um botão apertado no dock libera. Um comando mostra ou rascunha, e precisa ser digitado por você.
+- Só um botão apertado no dock libera ou roda sob demanda. Um comando só mostra ou rascunha: um link clicado chega igual a um comando digitado, então leia o rascunho antes de liberar.
 - Um script de check ou manifesto vigiado que muda pausa os checks até você ver de novo e liberar.
 - `/clear` e uma sessão nova derrubam toda liberação e toda evidência.
 
@@ -126,6 +126,10 @@ O que saber antes de apertar allow:
 
 - **Os checks rodam como você, fora dos pedidos de permissão e do sandbox.** No automático, código que um agente escreve nos seus testes roda no fim do turno sem perguntar. Variáveis de credencial conhecidas são apagadas; o resto do seu ambiente, não.
 - Ele não vê arquivos ignorados, pastas vazias, alternate data streams, bits de execução mudados só no disco, dependências nem escritas de shell e MCP fora dos repositórios liberados. Um agente que edita seus testes pode fazê-los passar: testes, scripts e config de teste alterados são listados para a sua revisão.
+- Edições são atribuídas só pelas ferramentas de arquivo: não se sabe quem fez uma escrita de shell ou MCP. Uma tarefa durante a qual outro agente editou, que não um subagente dela, fica Inconclusive.
+- Arquivos alterados e desfeitos enquanto um check roda não são vistos.
+- Num repositório muito grande o dock guarda listagens inteiras de arquivos no estado da sessão, alguns MB.
+- Liberar exige a view plan e um dock de pelo menos 40 colunas.
 - Processos que um check deixa em segundo plano podem continuar depois dele.
 - A contagem de testes é lida do `bun test`, do `claude plugin test` e de `bash …/run_all.sh` que imprime linhas `[PASS]`/`[FAIL]`. Outros runners ainda não podem verificar. Typecheck, lint e build valem pelo código de saída. Um script que roda outros de um jeito que não dá para mostrar inteiro não pode ser liberado.
 - Um repositório que não dá para ler com certeza (links, submódulos, repositórios aninhados, conflitos, mais de 20.000 arquivos) nunca é verificado.

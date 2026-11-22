@@ -398,7 +398,7 @@ async function topOf($: EngineInterface, from: string): Promise<string | null> {
   return null
 }
 
-const USAGE = 'OS-Deck proof: /os-deck proof setup [folder] | check <test|typecheck|lint|build> [--dir <folder>] -- <command> | run | history'
+const USAGE = 'OS-Deck proof: /os-deck proof setup [folder] | check <test|typecheck|lint|build> [--dir <folder>] -- <command> | history'
 
 /** `/os-deck proof …`: shows and drafts. Allowing is a press in the dock, never a command. */
 export async function proofCommand($: EngineInterface, ops: ProofOps, args: string, isTyped: boolean): Promise<string> {

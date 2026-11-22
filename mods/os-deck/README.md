@@ -82,7 +82,7 @@ The dock opens beside the conversation in a full-screen terminal from 110 column
 | `/os-deck proof` | Says what Agent Proof allows and has seen this session |
 | `/os-deck proof setup [folder]` | Shows the checks found, to allow in the dock |
 | `/os-deck proof check <test\|typecheck\|lint\|build> [--dir <folder>] -- <command>` | Drafts a check you name |
-| `/os-deck proof run` / `history` | Runs the allowed checks now, or lists the saved runs |
+| `/os-deck proof history` | Lists the saved runs |
 | `/os-deck sections` | Lists the sections and which are hidden |
 | `/os-deck layout <auto\|compact\|wide\|mini>` | Changes the layout |
 | `/os-deck epic` | Reads the anchored issue's epic from Jira |
@@ -118,7 +118,7 @@ Verified is about the checks. Whether the task meets its acceptance criteria is 
 What it trusts:
 
 - Never an agent's message, tool output or "tests pass", and never the saved history, which is only history.
-- Only a press in the dock allows. A command shows or drafts, and must be typed by you.
+- Only a press in the dock allows or runs on demand. A command only shows or drafts: a clicked link arrives looking like a typed command, so read a draft before you allow it.
 - A changed check script or watched manifest pauses the checks until you are shown them again and allow them.
 - `/clear` and a new session drop every allowance and all evidence.
 
@@ -126,6 +126,10 @@ What to know before you press allow:
 
 - **The checks run as you, outside permission prompts and the sandbox.** With automatic runs, code an agent writes into your tests runs at the end of the turn without a prompt. Known credential variables are blanked; the rest of your environment is not.
 - It does not see ignored files, empty folders, alternate data streams, executable bits changed only on disk, dependencies, or shell and MCP writes outside the allowed repositories. An agent that edits your tests can make them pass: changed tests, scripts and test config are listed for your review.
+- Edits are attributed by the file tools alone: who made a shell or MCP write is not known. A task another agent edited during, other than a subagent filed under it, is Inconclusive.
+- Files changed and changed back while a check runs are not seen.
+- In a very large repository the dock keeps whole file listings in session state, several MB of it.
+- Allowing needs the plan view and a dock at least 40 columns wide.
 - Processes a check leaves in the background may outlive it.
 - Test counts are read from `bun test`, `claude plugin test` and `bash …/run_all.sh` printing `[PASS]`/`[FAIL]` lines. Other test runners cannot verify yet. Typecheck, lint and build go by exit code. A script that runs others in a way that cannot be shown whole cannot be allowed.
 - A repository that cannot be read for certain (links, submodules, nested repositories, conflicts, over 20,000 files) is never verified.

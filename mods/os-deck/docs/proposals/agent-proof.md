@@ -290,6 +290,8 @@ As built, where it differs from the text above:
 - Resume shows setup again and takes a new allow, so changed code is never accepted unseen.
 - A task's start and completion wait up to 1.5 s for the content read (two reads, to catch a change during one), not 1 s.
 - An automatic run is owed at most once per claim, so a clock step cannot make runs loop.
+- No command runs checks, `proof run` included: the engine stamps a clicked link as it stamps a typed command.
+- A new allowance starts with no evidence. Which attempt counts is the order recorded, never the clock.
 - The executable bit is the index's; a change only on disk is not seen.
 
 Consequence of 1: after that press, code the agent writes into tests runs at the end of a turn without a permission prompt. The setup screen says this.
