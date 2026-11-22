@@ -36,8 +36,8 @@ import type {
 
 export { redact, redactDeep }
 
-/** 4: text saved before every path was redacted and stripped of control characters is cleaned once. */
-export const SCHEMA_VERSION = 4
+/** Raised whenever redaction learns more: text saved before is cleaned once. */
+export const SCHEMA_VERSION = 5
 
 // ---------------------------------------------------------------- defaults
 
@@ -125,6 +125,17 @@ export const cardsOf = (stored: unknown): AgentCard[] => {
   return [...byId.values()]
 }
 
+const MAX_CARDS = 24
+/** Far more than run at once: a stop for cards whose end was never seen. */
+const MAX_RUNNING_CARDS = 200
+
+/** The cards kept: every running one, and the newest finished ones in the room left. */
+export const keptCards = (cards: AgentCard[]): AgentCard[] => {
+  let extra = cards.length - MAX_CARDS
+  if (extra <= 0) return cards
+  return cards.filter(c => c.status === 'running' || extra-- <= 0).slice(-MAX_RUNNING_CARDS)
+}
+
 export const normalizeLog = (stored: unknown): LogLine[] =>
   recordsOf<Record<string, unknown>>(stored).map(l => ({
     at: typeof l.at === 'number' ? l.at : 0,
@@ -173,6 +184,8 @@ export type Config = {
   cswapCommand: string
   /** Draw the pet at the head of the plan view's header. */
   pet: boolean
+  /** Run git in the repositories beneath an opened folder; off, only their branch is read, from .git/HEAD. */
+  gitChildRepos: boolean
   /** The GitHub section: the branch's pull request through the gh CLI. */
   github: boolean
   /** The gh executable: a name on PATH or a full path. */
@@ -239,6 +252,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
     cswap: bool('cswap', true),
     cswapCommand: executableOf(str('cswapCommand', 'cswap'), 'cswap'),
     pet: bool('pet', true),
+    gitChildRepos: bool('gitChildRepos', false),
     github: bool('github', true),
     ghCommand: executableOf(str('ghCommand', 'gh'), 'gh'),
     alerts: bool('alerts', true),
@@ -721,7 +735,7 @@ const STATUSES: readonly string[] = ['pending', 'in_progress', 'completed']
 export const groupOf = (metadata: unknown): string[] | undefined => {
   if (!isObject(metadata) || !('group' in metadata)) return undefined
   const g = metadata.group
-  const parts = typeof g === 'string' ? g.split(/\s+\/\s+|\s*>\s*/) : Array.isArray(g) ? g.filter((x): x is string => typeof x === 'string') : []
+  const parts = typeof g === 'string' ? g.slice(0, 500).split(/\s\/\s|>/) : Array.isArray(g) ? g.filter((x): x is string => typeof x === 'string') : []
   return parts.map(x => x.trim()).filter(Boolean).slice(0, 4)
 }
 
@@ -1076,6 +1090,30 @@ export const historyWith = (stored: unknown, sessionId: string, done: Record<str
   return out
 }
 
+export type SessionDone = { at: number; done: Record<string, number>; ids: string[] }
+
+/** A session's record with the tasks that just finished added: never recounted, so it cannot shrink. */
+export const historyAdd = (stored: unknown, finished: readonly PlanTask[], now: number): SessionDone => {
+  const s = isObject(stored) ? stored : {}
+  const done: Record<string, number> = {}
+  if (isObject(s.done)) for (const [k, n] of Object.entries(s.done)) if (typeof n === 'number') done[k] = n
+  const ids = new Set(listOf<unknown>(s.ids).filter((x): x is string => typeof x === 'string'))
+  for (const t of finished) {
+    // A task reopened and finished again counts once.
+    const id = `${t.id}:${shorten(t.subject, 40)}`
+    if (ids.has(id)) continue
+    ids.add(id)
+    for (const [k, n] of Object.entries(doneByPath([t]))) done[k] = (Object.hasOwn(done, k) ? (done[k] as number) : 0) + n
+  }
+  return { at: now, done, ids: [...ids].slice(-500) }
+}
+
+/** The tasks a change finished. */
+export const newlyDone = (before: Plan, after: Plan): PlanTask[] => {
+  const was = new Set(before.tasks.filter(t => t.status === 'completed').map(t => t.id))
+  return after.tasks.filter(t => t.status === 'completed' && !was.has(t.id))
+}
+
 /** Tasks finished under each path in the project's other sessions. */
 export const historyBefore = (stored: unknown, sessionId: string, now: number): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -1186,13 +1224,14 @@ export const jiraIssueOf = (result: unknown, site: string | null = null): JiraIs
 }
 
 /** The browse site from a getJiraIssue call's cloudId when it names one (`acme.atlassian.net`). */
-export const jiraSiteOf = (cloudId: unknown): string | null =>
-  typeof cloudId === 'string' && /^[\w-]+\.atlassian\.net$/i.test(cloudId.replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
-    ? `https://${cloudId.replace(/^https?:\/\//, '').replace(/\/.*$/, '')}`
-    : null
+export const jiraSiteOf = (cloudId: unknown): string | null => {
+  if (typeof cloudId !== 'string' || cloudId.length > 300) return null
+  const host = cloudId.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  return /^[\w-]+\.atlassian\.net$/i.test(host) ? `https://${host}` : null
+}
 
 /** A group label for an issue: its key and a short summary, no group separators inside. */
-export const jiraLabel = (r: JiraRef) => `${r.key} ${shorten(r.summary.replace(/\s*[/>]\s*/g, ' - '), 40)}`.trim()
+export const jiraLabel = (r: JiraRef) => `${r.key} ${shorten(r.summary.slice(0, 300).replace(/\s+/g, ' ').replace(/ ?[/>] ?/g, ' - '), 40)}`.trim()
 
 /**
  * The plan's root for an issue: a subtask sits under its story, a story or task is the root
@@ -1317,7 +1356,7 @@ export const epicKeyOf = (j: JiraIssue | null | undefined): string | null => (j 
  * (A, B)`) lists only some, so it is not taken for the epic: null.
  */
 export const jqlParentKey = (jql: unknown): string | null => {
-  if (typeof jql !== 'string') return null
+  if (typeof jql !== 'string' || jql.length > 500) return null
   const m = /^\s*(?:parent(?:Epic)?|"epic link"|'epic link')\s*=\s*["']?([a-z][a-z0-9]{1,9}-\d{1,7})["']?\s*(?:order\s+by\s+[\w\s,"']+)?$/i.exec(jql)
   return m?.[1] ? m[1].toUpperCase() : null
 }

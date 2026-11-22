@@ -1101,11 +1101,11 @@ test('a subagent that takes a task up moves under it; a group finishing raises a
   await ui.unmount()
   await $.tool.call({ tool: 'TaskUpdate', taskId: '2', status: 'completed', agentId: 'w1' } as never)
   expect(toasts).toEqual(['✓ v1 / API done'])
-  const stored = db.get('plan-history:/proj') as Record<string, { done: Record<string, number> }>
-  expect(stored.S1?.done).toEqual({ v1: 2, 'v1 / API': 2 })
+  const stored = db.get('plan-history:/proj#S1') as { done: Record<string, number> } | undefined
+  expect(stored?.done).toEqual({ v1: 2, 'v1 / API': 2 })
 })
 
-test('an approved plan names the groups the prompt asks for', async ($, on) => {
+test('an approved plan is pointed to by the prompt, never quoted in it', async ($, on) => {
   engine(on)
   planWorld(on)
   on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'core', scope: 'shared' as const }] }))
@@ -1113,7 +1113,9 @@ test('an approved plan names the groups the prompt asks for', async ($, on) => {
   await $.tool.call({ tool: 'ExitPlanMode' } as never)
   const base = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'] as const, outputStyle: null, traits: [] }
   const out = await $.prompt.compose({ ...base, tools: ['TaskCreate'] } as never)
-  expect(out.sections.find(x => x.id === 'flightdeck:plan-groups')?.text).toContain('"Schema", "API", "UI"')
+  const text = out.sections.find(x => x.id === 'flightdeck:plan-groups')?.text
+  expect(text).toContain('An approved plan has sections')
+  expect(text).not.toContain('Schema')
 })
 
 test('the keyboard opens another group and lists finished tasks', async ($, on) => {
@@ -1197,11 +1199,16 @@ test('git status reads branch, upstream distance and files by state', () => {
   expect(sortRepos([clean, r]).map(x => x.name)).toEqual(['web', 'api'])
 })
 
-test('a workspace of several repositories shows a git row for each, feature branches against origin/dev', async ($, on) => {
+test('a workspace of several repositories shows a git row for each, feature branches against origin/dev', { options: { gitChildRepos: true } }, async ($, on) => {
   engine(on)
   on('session.cwd', () => ({ value: '/ws' }) as never)
-  on('fs.list', () => ({ value: [{ name: 'api', kind: 'dir' }, { name: 'web', kind: 'dir' }, { name: 'notes.md', kind: 'file' }, { name: '.cache', kind: 'dir' }] }) as never)
-  on('fs.exists', (_$, e) => ({ value: /[\\/](api|web)[\\/]\.git$/.test((e as unknown as { path: string }).path) }) as never)
+  on('fs.list', (_$, e) => {
+    const isRepo = /[\\/](api|web)$/.test(String((e as unknown as { path?: string }).path ?? ''))
+    const entries = isRepo
+      ? [{ name: '.git', kind: 'dir' }]
+      : [{ name: 'api', kind: 'dir' }, { name: 'web', kind: 'dir' }, { name: 'notes.md', kind: 'file' }, { name: '.cache', kind: 'dir' }]
+    return { value: entries.map(x => ({ ...x, isLink: false })) } as never
+  })
   const calls: string[] = []
   on('process.run', (_$, e) => {
     const argv = (e as unknown as { argv: string[] }).argv

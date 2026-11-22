@@ -17,7 +17,7 @@ const PR_FIELDS = 'number,title,state,isDraft,reviewDecision,statusCheckRollup,u
 /** The issues a pull request body closes: `Closes #12`, `fixes #3`, `resolved #40`, in order, once each. */
 export const closingIssuesOf = (body: string): number[] => {
   const out: number[] = []
-  for (const m of body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)/gi)) {
+  for (const m of body.slice(0, 65_536).matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s{0,5}:?\s{1,5}#(\d+)/gi)) {
     const n = Number(m[1])
     if (n > 0 && !out.includes(n)) out.push(n)
   }

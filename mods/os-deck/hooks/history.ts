@@ -20,6 +20,7 @@ export type DayRecord = {
 }
 
 export const EMPTY_DAY: DayRecord = { turns: 0, busyMs: 0, tasks: 0, agents: 0, costUsd: 0, asks: 0, askWaitMs: 0 }
+/** Read only since 0.4.3, when each session got a key of its own beside it (`os-deck:history#<session>`). */
 export const HISTORY_KEY = 'os-deck:history'
 /** Days kept: about two months. */
 export const HISTORY_DAYS = 62
@@ -79,11 +80,56 @@ export const historyReport = (stored: unknown, now: number, days: 1 | 7): string
   return `OS-Deck history (last 7 days):\n${lines.join('\n')}\n${dayLine('total     ', total[dayOf(0)] ?? EMPTY_DAY)}`
 }
 
-/** Adds to today's record in the store. Never throws: history is a nicety. */
+let queue: Promise<unknown> = Promise.resolve()
+
+/** Runs a store read-then-write after those before it, so none writes over another's. */
+export function inTurn<T>(job: () => Promise<T>): Promise<T> {
+  const run = queue.then(job)
+  queue = run.catch(() => undefined)
+  return run
+}
+
+/** The keys sessions keep beside `base`, each `<base>#<session id>`. */
+export const sessionKeysIn = (keys: readonly string[], base: string): string[] =>
+  keys.filter(k => k.startsWith(`${base}#`) && !/[#/\\]/.test(k.slice(base.length + 1)))
+
+/** Every session's days added up, with what was saved before each had its own key. */
+export async function loadHistory($: EngineInterface): Promise<Record<string, DayRecord>> {
+  return inTurn(async () => {
+    const out = normalizeHistory(await $.store.get(HISTORY_KEY))
+    for (const key of sessionKeysIn(await $.store.keys().catch(() => []), HISTORY_KEY)) {
+      for (const [day, record] of Object.entries(normalizeHistory(await $.store.get(key)))) {
+        const sum = { ...(out[day] ?? EMPTY_DAY) }
+        for (const f of Object.keys(EMPTY_DAY) as (keyof DayRecord)[]) sum[f] += record[f]
+        out[day] = sum
+      }
+    }
+    return normalizeHistory(out)
+  })
+}
+
+/** Drops the keys of sessions whose last day has left the history. Never throws. */
+export async function pruneHistory($: EngineInterface, now: number) {
+  try {
+    const oldest = dayOf(now - HISTORY_DAYS * 86_400_000)
+    await inTurn(async () => {
+      for (const key of sessionKeysIn(await $.store.keys(), HISTORY_KEY)) {
+        const last = Object.keys(normalizeHistory(await $.store.get(key))).pop()
+        if (last && last < oldest) await $.store.delete(key)
+      }
+    })
+  } catch {
+    // Left for another start.
+  }
+}
+
+/** Adds to this session's record of the day. Never throws: history is a nicety. */
 export async function recordDay($: EngineInterface, at: number, delta: Partial<DayRecord>) {
   try {
-    const stored = await $.store.get(HISTORY_KEY)
-    await $.store.set(HISTORY_KEY, addToDay(stored, at, delta))
+    await inTurn(async () => {
+      const key = `${HISTORY_KEY}#${await $.session.id()}`
+      await $.store.set(key, addToDay(await $.store.get(key), at, delta))
+    })
   } catch {
     // A store that cannot be read or written leaves the history as it was.
   }

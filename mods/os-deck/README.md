@@ -2,7 +2,7 @@
 
 **English** · [Português](README.pt-BR.md)
 
-**128 automated tests** (101 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
+**141 automated tests** (114 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
 
 ![The os-deck mascot changing states: thinking, reading, editing, running a command, subagents, waiting for your ok, failing, compacting, done, idle and asleep](docs/media/mascot-states.gif)
 
@@ -23,7 +23,7 @@ os-deck forked [Flightdeck](https://github.com/scasella/claude-flightdeck) at 0.
 | **[Forecasts](#alerts-and-forecasts)** | Turns left before the context fills, time left for the plan |
 | **History** | Turns, time, tasks, subagents, cost and wait per day, across sessions (`/os-deck today`, `/os-deck history`) |
 | **Plan, git and Jira** | Tasks as a tree by phase with their subagents, the state of each repository, the Jira epic |
-| **Tests** | 101 new tests, on top of 27 kept from Flightdeck's 28 |
+| **Tests** | 114 new tests, on top of 27 kept from Flightdeck's 28 |
 
 ## Author
 
@@ -54,7 +54,7 @@ Following long sessions without scrolling the transcript. In the `plan` view (th
 | Section | What it shows |
 |---|---|
 | Header | The mascot (Clawd) and, beside it, model, context, cost, the 5h/7d limits and the active `cswap` account |
-| Git | Branch, ahead/behind and changed files of the session's repository |
+| Git | Branch, ahead/behind, and staged, untracked and conflicted files of the session's repository. In a folder holding several, only each one's branch, unless `gitChildRepos` is on |
 | GitHub | The branch's PR (state, checks, review, issues it closes) through `gh`; with no PR, the repository's open ones |
 | Epic | The Jira issue cited in the session and the children of the epic above it |
 | Plan | The tasks (`TaskCreate`) grouped by work and phase (Plano, Implementação, Qualidade), with the subagents nested under each task |
@@ -76,7 +76,7 @@ The dock opens beside the conversation in a full-screen terminal from 110 column
 | `/os-deck` | Opens the dock |
 | `/os-deck close` | Closes the dock |
 | `/os-deck reset` | Clears what the dock gathered this session |
-| `/os-deck demo` | Fills the plan with a sample |
+| `/os-deck demo` | Shows a sample plan in place of yours; `/os-deck reset` brings yours back |
 | `/os-deck hide <section>` / `show <section>` | Hides or shows a section (kept between sessions), `pet` included |
 | `/os-deck sections` | Lists the sections and which are hidden |
 | `/os-deck layout <auto\|compact\|wide\|mini>` | Changes the layout |
@@ -153,14 +153,14 @@ From `claude plugin validate mods/os-deck`:
   - `prompt.compose`: adds a section to the system prompt asking for tasks grouped by work and phase (turned off with `planHint` and `planPolicy`).
   - `tool.call` and `session.append`: only watch tool calls and messages to draw the plan, the agents, the permissions and the log. They pass everything on without denying, rewriting or delaying anything.
   - `$.process.run`: runs `git --no-optional-locks -C <dir> symbolic-ref|diff-index --cached|ls-files|for-each-ref|rev-list|rev-parse` by argument vector, with no shell, for the Git section. With the `github` option on, it runs `<ghCommand> pr view --json …` and `<ghCommand> pr list --state open --json …` in the session's directory (read only). With the `cswap` option on, it also runs `<cswapCommand> list --json` (reading the account) and `<cswapCommand> switch [<target>] --json`, the latter only when you ask with `/os-deck account <target>`. The target is validated first (see the section above), and the executables come only from `userConfig`, never from a command argument.
-  - `$.fs.exists`, `$.fs.list`: find the session's git repository.
+  - `$.fs.list`, `$.fs.read`: find the repositories beneath an opened folder and read each one's branch from `.git/HEAD`, without following links and without running git there (unless `gitChildRepos` is on).
   - `$.tool.call`: reads the Jira issue and epic through the Atlassian connector (`getJiraIssue`, `searchJiraIssuesUsingJql`), only with `jiraFetch` on or with `/os-deck epic`. Each read asks permission like any tool call.
 - `$.session.cwd`, `$.session.id`, `$.session.messages`, `$.session.usage`: the session's directory, id, history (to rebuild the plan when resuming) and usage.
 - `$.state` (`os-deck.*`): the dock's state in the session, including the main loop's tool and the turn-end and failure times the mascot uses, and the last account reading (`os-deck.account`), so a reload of the mod does not count as a switch. It also reads, without writing, `skins.prefs`, `skins.custom` and `skins.isLight`, to use the skin's colours.
-- `$.store`: hidden sections, the plan's history and each day's summary (`os-deck:history`, about two months), between sessions.
+- `$.store`: hidden sections, and, under a key for each session, the plan's history (`plan-history:<directory>#<session>`, two weeks) and each day's summary (`os-deck:history#<session>`, about two months).
 - `$.ui.notify`: the alerts for a waiting ask and a long turn (the `alerts` option). `$.clock.now`, `$.clock.every` (reading the account every 45 s), `$.clock.after` (a new reading when the 35 s window ends, and the ask alerts), all cancelled when the session ends, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
 
-Text the dock stores from commands, agents, tasks, Jira, GitHub and errors has control characters stripped and goes through a redaction that hides tokens, passwords and keys. It works by pattern, so a secret in a format it does not know can still show. Git is read only with commands that do not open your files' contents, because those can make git run programs a repository chooses: so the Git section counts staged, untracked and conflicted files, but not modified ones, and never says a repository is clean. Folders laid out as bare repositories are not read (this needs git 2.38 or later). Jira titles and types do not enter the system prompt; the section names of a plan you approved do.
+Text the dock stores from commands, agents, tasks, Jira, GitHub and errors has control characters stripped and goes through a redaction that hides tokens, passwords and keys. It works by pattern, so a secret in a format it does not know can still show. Git is read only with commands that do not open your files' contents, because those can make git run programs a repository chooses: so the Git section counts staged, untracked and conflicted files, but not modified ones, and never says a repository is clean. Folders laid out as bare repositories are not read (this needs git 2.38 or later). Jira titles and types, and the section names of a plan you approved, do not enter the system prompt. On Windows, Claude Code's own git follows network paths named in the config of the repository you open, which can send your login hash to that host. The dock cannot prevent that, so open only repositories you trust.
 
 ## Configuration
 
@@ -182,7 +182,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Claude Code versions validated
 
-2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.4.2 passed its 128 tests on the 2.1.330 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
+2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.4.3 passed its 141 tests on the 2.1.330 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
 
 ## License
 

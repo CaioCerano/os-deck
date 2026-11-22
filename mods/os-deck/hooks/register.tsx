@@ -42,6 +42,7 @@ import {
   normalize,
   cardsOf,
   normalizeCard,
+  keptCards,
   normalizeGate,
   normalizeLog,
   noteTool,
@@ -76,8 +77,8 @@ import {
   planLinkTo,
   planCurrent,
   groupsFinished,
-  doneByPath,
-  historyWith,
+  historyAdd,
+  newlyDone,
   historyBefore,
   groupSpent,
   nodeAt,
@@ -115,7 +116,7 @@ import { isTurnAlert, scheduleAskAlert, sendAlert, settleAskAlert, stopAlerts, t
 import type { AlertConfig } from './alerts'
 import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './github'
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
-import { HISTORY_KEY, historyReport, recordDay } from './history'
+import { historyReport, inTurn, loadHistory, pruneHistory, recordDay, sessionKeysIn } from './history'
 import { gitRead, readRepoState } from './safe-git'
 import type { Config, Panel } from './core'
 
@@ -208,24 +209,48 @@ async function readRepo($: EngineInterface, dir: string, name: string): Promise<
   return n ? { ...repo, base, baseAhead: n.ahead, baseBehind: n.behind } : repo
 }
 
+/**
+ * A repository beneath the opened folder, by its branch alone. Nobody chose to open it and Claude Code
+ * runs no git there, so neither does the dock: git follows whatever paths its config names, network
+ * shares included. Links are not followed either.
+ */
+async function readBranchOnly($: EngineInterface, dir: string, name: string): Promise<GitRepo> {
+  let branch = ''
+  // A .git file (a linked worktree, a submodule) points elsewhere: the name alone.
+  const gitDir = (await $.fs.list(dir)).find(x => x.name === '.git')
+  if (gitDir?.kind === 'dir' && !gitDir.isLink) {
+    const head = (await $.fs.list(`${dir}/.git`)).find(x => x.name === 'HEAD')
+    if (head?.kind === 'file' && !head.isLink) {
+      const text = String(await $.fs.read(`${dir}/.git/HEAD`)).slice(0, 300).trim()
+      branch = /^ref: refs\/heads\/(\S+)$/.exec(text)?.[1] ?? (/^[0-9a-f]{40,64}$/.test(text) ? 'detached' : '')
+    }
+  }
+  return { name: redact(name), branch: redact(branch), ahead: 0, behind: 0, base: null, baseAhead: 0, baseBehind: 0, staged: 0, untracked: 0, conflicts: 0 }
+}
+
 /** The session's repository, or where the directory is a workspace of several, each one beneath it. */
-async function refreshGit($: EngineInterface) {
+async function refreshGit($: EngineInterface, runInChildren: boolean) {
   const startedAt = await $.clock.now()
   const cwd = await $.session.cwd()
   const top = await gitRead($, cwd, ['rev-parse', '--show-toplevel'])
   const dirs: { dir: string; name: string }[] = []
-  if (top.exitCode === 0) {
+  const isRepo = top.exitCode === 0
+  if (isRepo) {
     const d = top.stdout.trim()
     dirs.push({ dir: d, name: d.split('/').pop() || d })
   } else {
     for (const en of await $.fs.list(cwd)) {
       if (dirs.length >= 6) break
-      if (en.kind === 'dir' && !en.name.startsWith('.') && (await $.fs.exists(`${cwd}/${en.name}/.git`))) dirs.push({ dir: `${cwd}/${en.name}`, name: en.name })
+      if (en.kind !== 'dir' || en.isLink || en.name.startsWith('.')) continue
+      const dir = `${cwd}/${en.name}`
+      // Listed, not `exists`: that would follow a linked .git to wherever it leads.
+      const inside = await $.fs.list(dir).catch(() => [])
+      if (inside.some(x => x.name === '.git' && !x.isLink)) dirs.push({ dir, name: en.name })
     }
   }
   const before = await getGit($)
   // A repository that failed this time keeps its last reading rather than blinking out.
-  const read = await Promise.all(dirs.map(d => readRepo($, d.dir, d.name).catch(() => before.repos.find(r => r.name === d.name) ?? null)))
+  const read = await Promise.all(dirs.map(d => (isRepo || runInChildren ? readRepo($, d.dir, d.name) : readBranchOnly($, d.dir, d.name)).catch(() => before.repos.find(r => r.name === d.name) ?? null)))
   const repos = read.filter((x): x is GitRepo => x !== null)
   // Two reads may overlap: the one that started later wins, whichever ends last.
   await update($, git, x => {
@@ -237,13 +262,13 @@ async function refreshGit($: EngineInterface) {
 // Not more often than every few seconds unless forced. No lock: a read cut off with its
 // session would hold it for good, and two reads at once only write the same thing twice.
 let gitLast = 0
-async function pokeGit($: EngineInterface, isOn: boolean, force: boolean) {
-  if (!isOn) return
+async function pokeGit($: EngineInterface, cfg: Config, force: boolean) {
+  if (!cfg.panels.includes('git')) return
   const now = await $.clock.now()
   if (!force && now - gitLast < 4000) return
   gitLast = now
   try {
-    await refreshGit($)
+    await refreshGit($, cfg.gitChildRepos)
   } catch (err) {
     // Called without waiting: nothing may escape, the log line included (the session may be gone).
     await say($, 'os-deck', `git read failed: ${String(err)}`, 'error').catch(() => undefined)
@@ -510,7 +535,15 @@ async function getRoster($: EngineInterface): Promise<Roster> {
 /** Claude's own task list, as its task tools change it: what the plan panel draws. */
 /** `now` is null when the call is replayed from the transcript: its time is not known. */
 async function notePlan($: EngineInterface, tool: string, input: Record<string, unknown>, result: unknown, now: number | null) {
-  await update($, plan, p => planApply(normalizePlan(p), tool, input, result, now))
+  // Taken inside the write, so calls that land together each see only their own change.
+  let before = DEFAULT_PLAN
+  let after = DEFAULT_PLAN
+  await update($, plan, p => {
+    before = normalizePlan(p)
+    after = planApply(before, tool, input, result, now)
+    return after
+  })
+  return { before, after }
 }
 
 /** A getJiraIssue result for an issue the person cited (or the one already anchored) anchors the plan. */
@@ -589,6 +622,7 @@ async function autoEpic($: EngineInterface, isOn: boolean, siteOpt: string | nul
   }
 }
 
+const PLAN_HISTORY_MS = 14 * 86_400_000
 const PLAN_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite', 'ExitPlanMode'])
 
 /** The project's plan history lives in the store under the session's directory. */
@@ -600,17 +634,37 @@ async function historyKey($: EngineInterface) {
  * After a task change: a toast for a group it finished, this session's counts written to the
  * project's history. A subagent taking a task up itself moves under that task.
  */
-async function afterPlanChange($: EngineInterface, before: Plan, input: Record<string, unknown>, agentId: string | undefined, now: number) {
+async function afterPlanChange($: EngineInterface, before: Plan, after: Plan, input: Record<string, unknown>, agentId: string | undefined, now: number) {
   const taskId = typeof input.taskId === 'string' ? input.taskId : null
   if (agentId && taskId && input.status === 'in_progress') await update($, plan, p => planLinkTo(normalizePlan(p), taskId, agentId))
-  const after = await getPlan($)
   const finished = groupsFinished(before, after)
   if (finished[0]) $.ui.toast(`✓ ${finished[0]} done`)
-  if (input.status === 'completed') {
-    const key = await historyKey($)
-    const id = await $.session.id()
-    await $.store.set(key, historyWith(await $.store.get(key), id, doneByPath(after.tasks), now))
+  const done = newlyDone(before, after)
+  if (done.length === 0) return
+  const key = await historyKey($)
+  const id = await $.session.id()
+  await inTurn(async () => {
+    // The first write carries over what this session saved in the map all sessions once shared.
+    const own = await $.store.get(`${key}#${id}`)
+    const old = own === undefined ? ((await $.store.get(key)) as Record<string, unknown> | null | undefined)?.[id] : own
+    await $.store.set(`${key}#${id}`, historyAdd(old, done, now))
+  })
+}
+
+/** What the project's other sessions finished, read into the plan; records past their two weeks are dropped. */
+async function loadPlanHistory($: EngineInterface, sessionId: string) {
+  const base = await historyKey($)
+  const now = await $.clock.now()
+  const shared = await $.store.get(base)
+  const all: Record<string, unknown> = typeof shared === 'object' && shared !== null ? { ...shared } : {}
+  for (const key of sessionKeysIn(await $.store.keys().catch(() => []), base)) {
+    const record = await $.store.get(key)
+    const at = (record as { at?: unknown } | null | undefined)?.at
+    if (typeof at === 'number' && now - at > PLAN_HISTORY_MS) await $.store.delete(key).catch(() => undefined)
+    else all[key.slice(base.length + 1)] = record
   }
+  const history = historyBefore(all, sessionId, now)
+  await update($, plan, p => ({ ...normalizePlan(p), history }))
 }
 
 /**
@@ -631,9 +685,7 @@ async function rebuildPlan($: EngineInterface) {
     }
     await update($, plan, () => ({ ...p, rebuilt: true }))
   }
-  const [stored, id, now] = await Promise.all([historyKey($).then(k => $.store.get(k)), $.session.id(), $.clock.now()])
-  const history = historyBefore(stored, id, now)
-  await update($, plan, p => ({ ...normalizePlan(p), history }))
+  await loadPlanHistory($, await $.session.id())
 }
 
 /** A stored shape older than this build's: drop what cannot be read, keep the rest. */
@@ -781,6 +833,7 @@ export const register: Register = (on, options) => {
         argumentHint: '[open|close|reset|demo|epic|pet|today|history|github|account [n|email|next]|hide <section>|show <section>|sections|layout auto|compact|wide|mini]',
       })
     await migrate($)
+    void pruneHistory($, await $.clock.now())
     // One timer per load: a reload runs session.start again, and a timer an older load left behind
     // finds its generation stale and does nothing.
     stopAccountTimers()
@@ -793,7 +846,7 @@ export const register: Register = (on, options) => {
     }
     const hidden = hiddenOf(await $.store.get(HIDDEN_KEY).catch(() => []))
     await update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), hidden }))
-    void pokeGit($, cfg.panels.includes('git'), true)
+    void pokeGit($, cfg, true)
     void pokeGithub($, cfg, true)
     // A host without usage (headless, an SDK host, a session not yet bound) just starts without it.
     const u = await $.session.usage().catch(() => null)
@@ -841,7 +894,9 @@ export const register: Register = (on, options) => {
     const pc = await getPlan($)
     const groups = pc.groups ?? []
     const hint = cfg.planPolicy === 'always' ? planPolicyHint(cfg.planPhases) : PLAN_HINT
-    const base = groups.length > 0 ? `${hint} The approved plan's sections, to use as group names in this order where they fit: ${groups.map(x => `"${x}"`).join(', ')}.` : hint
+    // Never the sections themselves: a plan can repeat a repository's words, and here they would read as
+    // the system's. Claude has the plan it wrote.
+    const base = groups.length > 0 ? `${hint} An approved plan has sections: where they fit, use their names as group names, in that plan's order.` : hint
     const text = pc.jira ? `${base} ${jiraHint(pc.jira)}` : base
     return { sections: [...composed.sections, { id: 'flightdeck:plan-groups', text, scope: 'session' as const }] }
   })
@@ -854,6 +909,8 @@ export const register: Register = (on, options) => {
     }
     if (e.reason === 'clear') {
       await resetAll($)
+      // The conversation that follows is a new session: every record is an earlier one's.
+      await loadPlanHistory($, '').catch(() => undefined)
       await refreshStatus($, cfg)
     }
     return next(e)
@@ -867,15 +924,20 @@ export const register: Register = (on, options) => {
       return { text: 'OS-Deck closed.' }
     }
     if (verb === 'reset') {
+      if ((await getView($)).demoAt != null) {
+        await update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), demoAt: null }))
+        return { text: 'OS-Deck: the sample plan is gone; your plan is as it was.' }
+      }
       await resetAll($)
+      await loadPlanHistory($, await $.session.id().catch(() => '')).catch(() => undefined)
       await refreshStatus($, cfg)
       return { text: 'OS-Deck reset.' }
     }
     if (verb === 'demo') {
       const now = await $.clock.now()
-      await update($, plan, () => demoPlan(now))
+      await update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), demoAt: now }))
       const opened = await openPane($)
-      return { text: `OS-Deck: a sample plan is in the plan panel; /os-deck reset clears it.${opened.isPlaced ? '' : ` The pane is not shown yet: ${opened.reason}`}` }
+      return { text: `OS-Deck: a sample plan is shown in place of yours; /os-deck reset brings yours back.${opened.isPlaced ? '' : ` The pane is not shown yet: ${opened.reason}`}` }
     }
     if (verb === 'hide' || verb === 'show') {
       const section = deckSectionOf(arg)
@@ -899,7 +961,7 @@ export const register: Register = (on, options) => {
       return { text: ep?.key === ek ? `OS-Deck: ${ek} has ${ep.children.length} children.` : `OS-Deck: ${ek} could not be read.` }
     }
     if (verb === 'today' || verb === 'hoje' || verb === 'history' || verb === 'historico' || verb === 'histórico') {
-      const stored = await $.store.get(HISTORY_KEY).catch(() => null)
+      const stored = await loadHistory($).catch(() => null)
       return { text: historyReport(stored, await $.clock.now(), verb === 'today' || verb === 'hoje' ? 1 : 7) }
     }
     if (verb === 'github' || verb === 'gh' || verb === 'pr') {
@@ -932,7 +994,7 @@ export const register: Register = (on, options) => {
       const opened = await openPane($)
       return { text: opened.isPlaced ? `OS-Deck layout: ${layout}.` : `Layout set to ${layout}; the pane is not shown yet: ${opened.reason}` }
     }
-    void pokeGit($, cfg.panels.includes('git'), true)
+    void pokeGit($, cfg, true)
     void pokeAccount($, cfg, false)
     const opened = await openPane($)
     if (!opened.isPlaced) return { text: `OS-Deck is not shown yet: ${opened.reason}` }
@@ -1133,9 +1195,9 @@ export const register: Register = (on, options) => {
         const isOwnTodos = e.tool === 'TodoWrite' && Boolean(e.agentId)
         if (didRun && ran.isError !== true && !isOwnTodos) {
           const input = e as unknown as Record<string, unknown>
-          const [before, now] = await Promise.all([getPlan($), $.clock.now()])
-          await notePlan($, e.tool, input, ran.result, now)
-          if (e.tool === 'TaskUpdate') await afterPlanChange($, before, input, e.agentId, now).catch(err => say($, 'flightdeck', `plan update failed: ${String(err)}`, 'error'))
+          const now = await $.clock.now()
+          const { before, after } = await notePlan($, e.tool, input, ran.result, now)
+          if (e.tool === 'TaskUpdate') await afterPlanChange($, before, after, input, e.agentId, now).catch(err => say($, 'flightdeck', `plan update failed: ${String(err)}`, 'error'))
           if (e.tool === 'TaskUpdate' && input.status === 'completed') void recordDay($, now, { tasks: 1 })
         }
         if (isSettled) await refreshStatus($, cfg)
@@ -1147,7 +1209,7 @@ export const register: Register = (on, options) => {
       }
       const hasFailed = didRun && ran.isError === true
       const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
-      if (didRun && (isEdit || e.tool === 'Bash')) void pokeGit($, cfg.panels.includes('git'), false)
+      if (didRun && (isEdit || e.tool === 'Bash' || e.tool === 'PowerShell')) void pokeGit($, cfg, false)
       // A push or a gh pr command changes what the GitHub section shows: read it again now.
       if (didRun && (e.tool === 'Bash' || e.tool === 'PowerShell') && /\bgit\s+push\b|\bgh\s+pr\b/.test(String((e as unknown as { command?: unknown }).command ?? ''))) void pokeGithub($, cfg, true)
       const t0 = await getTurn($)
@@ -1236,7 +1298,7 @@ export const register: Register = (on, options) => {
       lastStop: null,
       answer: '',
     }
-    await update($, agents, list => [...cardsOf(list).filter(c => c.id !== id), card].slice(-24))
+    await update($, agents, list => keptCards([...cardsOf(list).filter(c => c.id !== id), card]))
     await update($, plan, p => planLinkAgent(normalizePlan(p), id))
     await update($, loops, l => recordsOf<Loop>(l, 'id').filter(x => x.id !== id))
     await say($, shorten(cardTitle(card), 12), `spawned · ${card.type}`, 'info', id)
@@ -1266,7 +1328,7 @@ export const register: Register = (on, options) => {
       void recordDay($, now, { turns: 1, busyMs: e.durationMs, agents: r.agents, costUsd: r.costDelta ?? 0 })
       if (isTurnAlert(alertCfg, e.reason, e.durationMs)) void sendAlert($, turnAlertText(e.reason, e.durationMs, r.edits, r.errors), 'turn')
       await refreshStatus($, cfg)
-      void pokeGit($, cfg.panels.includes('git'), true)
+      void pokeGit($, cfg, true)
       void pokeGithub($, cfg, false)
       return done
     }
@@ -1311,7 +1373,7 @@ export const register: Register = (on, options) => {
         ]).then(xs => xs.map(x => (x as { value?: unknown }).value))
       : [null, null, false]
     const C = colorsOf(cfg, skinColors(sp, sc, sl === true))
-    const [m, u0, a, g, cards, lp, lines, t, r, v, now, pl, gt, acc, ghs] = await Promise.all([
+    const [m, u0, a, g, cards, lp, lines, t, r, v, now, realPlan, gt, acc, ghs] = await Promise.all([
       getMain($),
       getUsage($),
       getArchitect($),
@@ -1328,6 +1390,7 @@ export const register: Register = (on, options) => {
       getAccount($),
       getGithub($),
     ])
+    const pl = v.demoAt != null ? demoPlan(v.demoAt) : realPlan
     // The limits drawn: the session's, or cswap's reading of the active account (marked ~).
     const shown = shownLimits(u0.limits, acc, now)
     const u = { ...u0, limits: shown.limits }

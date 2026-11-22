@@ -2,6 +2,19 @@
 
 **English** · [Português](CHANGELOG.pt-BR.md)
 
+## os-deck 0.4.3
+
+Security and data-loss fixes.
+
+- **Changed: git no longer runs in repositories beneath the folder you open.** Their config could make git contact a network share. The dock shows their branch alone; the new `gitChildRepos` option (off by default) restores the counts for folders you trust. The repository you open is still exposed to this through Claude Code's own git, which the dock cannot change.
+- **An approved plan's words stay out of the system prompt.**
+- **Redaction** covers many more token formats and leaves common code, branch names and titles alone.
+- **Five slow regexes** on untrusted text are now linear or capped.
+- **`/os-deck demo` no longer replaces your plan** or writes into the project's history.
+- **History is no longer lost:** resuming adds to what was saved, a reset keeps earlier sessions, and each session saves under its own key, one write at a time.
+- **Running agents are never dropped** to make room past 24; finished ones go first.
+- **PowerShell** commands refresh the Git section.
+
 ## os-deck 0.4.2
 
 Security fixes. **0.4.1 did not fix what it said it did: update from any earlier version.**

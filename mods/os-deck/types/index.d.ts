@@ -144,6 +144,8 @@ export type View = {
   hidden?: DeckSection[]
   /** The account list under the header, opened from the account row. */
   accountOpen?: boolean
+  /** Set while /os-deck demo shows its sample plan: when it began. The real plan is untouched. */
+  demoAt?: number | null
   /** The pet's detail rows (the tool running and the agents, each opening its card) shown under the header. */
   petOpen?: boolean
 }

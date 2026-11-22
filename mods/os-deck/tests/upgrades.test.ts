@@ -169,6 +169,8 @@ const world = (on: On) => {
   })
   on('command.register', () => ({ value: undefined }) as never)
   on('session.cwd', () => ({ value: '/repo' }) as never)
+  on('session.id', () => ({ value: 'U1' }) as never)
+  on('store.keys', () => ({ value: [...db.keys()] }) as never)
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   return { clock, notes, toasts }
