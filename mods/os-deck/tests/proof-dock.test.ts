@@ -6,7 +6,7 @@ import { expect, mock, test } from 'claude-code/testing'
 const pause = (ms = 80) => new Promise(done => setTimeout(done, ms))
 const command = (args: string, kind = 'composer') => ({ command: 'os-deck', args, origin: { kind }, presentation: { isFullscreen: true, columns: 160 } }) as never
 const paneAt = (columns = 80, rows = 70, placement = 'dock') =>
-  ({ plugin: 'os-deck', component: 'Pane', requestId: 'flightdeck', surface: 'terminal', props: { title: 'OS-Deck', bodyColumns: columns, bodyRows: rows, isFocused: true, placement } }) as never
+  ({ plugin: 'os-deck', component: 'Pane', requestId: 'flightdeck', surface: 'terminal', props: { title: 'OS-Deck', bodyColumns: columns, scroll: { offset: 0, bodyRows: rows }, isFocused: true, placement, view: {} }, viewport: { columns, rows } }) as never
 
 const world = (on: On) => {
   const clock = mock.clock(on)
