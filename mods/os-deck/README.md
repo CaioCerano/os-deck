@@ -119,7 +119,7 @@ What it trusts:
 
 - Never an agent's message, tool output or "tests pass", and never the saved history, which is only history.
 - Only a press in the dock allows or runs on demand. A command only shows or drafts: a clicked link arrives looking like a typed command, so read a draft before you allow it.
-- A change to a watched file pauses the checks until you are shown them again and allow them: the scripts shown, the files they name to run, their manifests and config, and programs of the same names in `node_modules/.bin`.
+- A change to a watched file pauses the checks until you are shown them again and allow them: the scripts shown, the files they name to run, their manifests and config, programs of the same names, whatever their extension, in each `node_modules/.bin` up to the drive's root, and the `package.json` of each folder above.
 - `/clear` and a new session drop every allowance and all evidence.
 
 What to know before you press allow:
@@ -133,6 +133,9 @@ What to know before you press allow:
 - Processes a check leaves in the background may outlive it.
 - Only a small grammar runs automatically: `claude plugin test`, `bun test`, `bash <file>`, `node <file.js>`, a few tools (`tsc`, `eslint`, `prettier --check`, `jest`, `vitest run`, `vite build`, `pytest`, `ruff check`, `mypy`) with known flags, and `npm run <script>` where the script is plain words joined by `&&` of those. An unknown program such as `cargo` or `make` is manual only. Anything else is refused: quotes, globs, variables, redirects, `npx`, `pnpm`, `yarn`, `turbo`, and `.npmrc` settings not known to be harmless. Setup leaves out what it cannot allow and says so.
 - Test counts are read from `bun test`, `claude plugin test` and `bash …/run_all.sh` printing `[PASS]`/`[FAIL]` lines. Other test runners cannot verify, so setup does not propose them. Typecheck, lint and build go by exit code.
+- An npm check is refused under a workspace of a folder above, which would lend it config nobody was shown.
+- A check that has started when you begin another turn is left to finish; none is started after that.
+- A claim you never reviewed, even one replaced or reopened since, keeps its repository at "to review" for the session. Only its newest claim has a button.
 - It does not watch imports, dependencies, tool config, what shell scripts call, or npm config in your home folder and environment: a change there runs unseen.
 - A check that rewrites a file it is watched by, such as running what it just built, cannot verify.
 - A change with no tool call behind it, by an editor or another session, can take up to 30 seconds to turn a check stale.
@@ -215,7 +218,7 @@ From `claude plugin validate mods/os-deck`:
 - `$.state` (`os-deck.*`): the dock's state in the session, including the main loop's tool and the turn-end and failure times the mascot uses, and the last account reading (`os-deck.account`), so a reload of the mod does not count as a switch. It also reads, without writing, `skins.prefs`, `skins.custom` and `skins.isLight`, to use the skin's colours.
 - `$.agent.list`: whether an agent is still at work, before Agent Proof runs by itself.
 - `$.store`: Agent Proof's history and the checks last allowed (a suggestion, never a permission); hidden sections; the plan's history under a key for each session (`plan-history:<directory hash>#<session>`, two weeks); each day's summary (`os-deck:day:<day>#<session>`, folded into `os-deck:history-days` once the day is past, about two months).
-- `$.ui.notify`: the alerts for a waiting ask and a long turn (the `alerts` option). `$.clock.now`, `$.clock.every` (reading the account every 45 s), `$.clock.after` (a new reading when the 35 s window ends, and the ask alerts), all cancelled when the session ends, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
+- `$.ui.notify`: the alerts for a waiting ask and a long turn (the `alerts` option). `$.clock.now`, `$.clock.every` (reading the account every 45 s), `$.clock.after` (a new reading when the 35 s window ends, and the ask alerts), all cancelled when the session ends, except that Agent Proof's 30-second watch goes on through `/clear` and a resume, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
 
 Text the dock stores from commands, agents, tasks, Jira, GitHub and errors has control characters stripped and goes through a redaction that hides tokens, passwords and keys. It works by pattern, so a secret in a format it does not know can still show. Outside a repository allowed for Agent Proof, git is read only with commands that do not open your files' contents, because those can make git run programs a repository chooses: so the Git section counts staged and conflicted files, not modified ones, and untracked ones only with `gitChildRepos` (listing them makes git open nested repositories), and never says a repository is clean. Folders laid out as bare repositories are not read (this needs git 2.38 or later). Jira titles and types, and the section names of a plan you approved, do not enter the system prompt. On Windows, Claude Code's own git follows network paths named in the config of the repository you open, which can send your login hash to that host. The dock cannot prevent that, so open only repositories you trust.
 

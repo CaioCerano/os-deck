@@ -119,7 +119,7 @@ No que ele confia:
 
 - Nunca na mensagem de um agente, na saída de uma ferramenta ou em "os testes passam", e nunca no histórico salvo, que é só histórico.
 - Só um botão apertado no dock libera ou roda sob demanda. Um comando só mostra ou rascunha: um link clicado chega igual a um comando digitado, então leia o rascunho antes de liberar.
-- Um arquivo vigiado que muda pausa os checks até você ver de novo e liberar: os scripts mostrados, os arquivos que eles mandam rodar, os manifestos e configs deles e programas de mesmo nome em `node_modules/.bin`.
+- Um arquivo vigiado que muda pausa os checks até você ver de novo e liberar: os scripts mostrados, os arquivos que eles mandam rodar, os manifestos e configs deles programas de mesmo nome, com qualquer extensão, em cada `node_modules/.bin` até a raiz do disco, e o `package.json` de cada pasta acima.
 - `/clear` e uma sessão nova derrubam toda liberação e toda evidência.
 
 O que saber antes de apertar allow:
@@ -133,6 +133,9 @@ O que saber antes de apertar allow:
 - Processos que um check deixa em segundo plano podem continuar depois dele.
 - Só uma gramática pequena roda no automático: `claude plugin test`, `bun test`, `bash <arquivo>`, `node <arquivo.js>`, algumas ferramentas (`tsc`, `eslint`, `prettier --check`, `jest`, `vitest run`, `vite build`, `pytest`, `ruff check`, `mypy`) com flags conhecidas, e `npm run <script>` quando o script é feito de palavras simples ligadas por `&&` dessas. Um programa desconhecido como `cargo` ou `make` é só manual. O resto é recusado: aspas, globs, variáveis, redirecionamentos, `npx`, `pnpm`, `yarn`, `turbo` e configurações de `.npmrc` que não se sabe serem inofensivas. O setup deixa de fora o que não pode liberar e avisa.
 - A contagem de testes é lida do `bun test`, do `claude plugin test` e de `bash …/run_all.sh` que imprime linhas `[PASS]`/`[FAIL]`. Outros runners não podem verificar, então o setup não os propõe. Typecheck, lint e build valem pelo código de saída.
+- Um check de npm é recusado sob um workspace de uma pasta acima, que emprestaria a ele uma config que ninguém viu.
+- Um check que já começou quando você inicia outro turno termina; nenhum começa depois disso.
+- Uma alegação que você nunca revisou, mesmo substituída ou reaberta depois, mantém o repositório dela em "to review" pela sessão. Só a mais nova tem botão.
 - Ele não vigia imports, dependências, config de ferramentas, o que scripts de shell chamam, nem config do npm na sua pasta pessoal e no ambiente: uma mudança ali roda sem ser vista.
 - Um check que reescreve um arquivo pelo qual é vigiado, como rodar o que acabou de compilar, não pode verificar.
 - Uma mudança sem chamada de ferramenta, de um editor ou outra sessão, pode levar até 30 segundos para deixar um check stale.
@@ -215,7 +218,7 @@ Saída de `claude plugin validate mods/os-deck`:
 - `$.state` (`os-deck.*`): estado do painel na sessão, incluindo a ferramenta do loop principal e os horários de fim de turno e de falha que o mascote usa, a última leitura da conta (`os-deck.account`), para uma recarga do mod não contar como troca. Lê também, sem escrever, `skins.prefs`, `skins.custom` e `skins.isLight`, para usar as cores do skin.
 - `$.agent.list`: se algum agente ainda está trabalhando, antes de o Agent Proof rodar sozinho.
 - `$.store`: o histórico do Agent Proof e os últimos checks liberados (uma sugestão, nunca uma permissão); seções ocultas; o histórico do plano numa chave por sessão (`plan-history:<hash do diretório>#<sessão>`, duas semanas); o resumo de cada dia (`os-deck:day:<dia>#<sessão>`, juntado em `os-deck:history-days` quando o dia passa, uns dois meses).
-- `$.ui.notify`: os alertas de permissão esperando e de turno longo (opção `alerts`). `$.clock.now`, `$.clock.every` (leitura da conta a cada 45 s), `$.clock.after` (nova leitura quando a janela de 35 s termina), ambos cancelados no fim da sessão, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
+- `$.ui.notify`: os alertas de permissão esperando e de turno longo (opção `alerts`). `$.clock.now`, `$.clock.every` (leitura da conta a cada 45 s), `$.clock.after` (nova leitura quando a janela de 35 s termina), ambos cancelados no fim da sessão, exceto a vigia de 30 segundos do Agent Proof, que segue por `/clear` e por uma retomada, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
 
 O texto que o dock salva de comandos, agentes, tasks, Jira, GitHub e erros perde os caracteres de controle e passa por uma redação que esconde tokens, senhas e chaves. Ela funciona por padrão de texto, então um segredo em formato desconhecido ainda pode aparecer. Fora de um repositório liberado para o Agent Proof, o git é lido só com comandos que não abrem o conteúdo dos seus arquivos, porque esses podem fazer o git rodar programas escolhidos pelo repositório: por isso a seção Git conta arquivos staged e em conflito, não os modificados, e os não rastreados só com `gitChildRepos` (listá-los faz o git abrir repositórios aninhados), e nunca diz que um repositório está limpo. Pastas montadas como repositório bare não são lidas (isso exige git 2.38 ou mais novo). Títulos e tipos do Jira, e os nomes de seção de um plano que você aprovou, não entram no system prompt. No Windows, o git do próprio Claude Code segue caminhos de rede citados na config do repositório que você abre, o que pode mandar o hash do seu login para esse host. O dock não consegue impedir isso, então abra só repositórios em que você confia.
 
