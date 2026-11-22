@@ -1,0 +1,218 @@
+{
+  "name": "os-deck",
+  "version": "0.4.0",
+  "description": "OS-Deck: painel lateral de agentes do Claude Code (fork do Flightdeck). Plano por fase com subagentes aninhados, arquiteto de plantão, permissões, git, épico do Jira, linha do tempo e log da sessão, com as cores do skin ativo",
+  "author": {
+    "name": "Caio Cerano",
+    "url": "https://github.com/CaioCerano"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "claude-code-mod",
+    "claude-code-plugin",
+    "dashboard",
+    "subagents",
+    "agents",
+    "observability",
+    "tui"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "architectPattern": {
+      "title": "Architect pattern",
+      "description": "Regular expression (case-insensitive) for the agent types and server tools that count as the on-call architect, e.g. advisor|architect|reviewer",
+      "type": "string",
+      "default": "advisor|architect"
+    },
+    "architectLabel": {
+      "title": "Architect label",
+      "description": "Name shown for the architect role",
+      "type": "string",
+      "default": "ARCHITECT"
+    },
+    "gateLabel": {
+      "title": "Gate label",
+      "description": "Name shown for the permission panel",
+      "type": "string",
+      "default": "GATE"
+    },
+    "panels": {
+      "title": "Panels",
+      "description": "Comma-separated panels in display order: main, plan, architect, gate, agents, loops, receipt, log, git, epic, timeline. Leave one out to hide it.",
+      "type": "string",
+      "default": "main,plan,architect,gate,agents,loops,receipt,log,git,epic,timeline"
+    },
+    "motion": {
+      "title": "Motion",
+      "description": "Animate the connectors while real work flows, or keep them still",
+      "type": "string",
+      "options": [
+        "while-active",
+        "off"
+      ],
+      "default": "while-active"
+    },
+    "moments": {
+      "title": "Architect moments",
+      "description": "Show the inferred moment of each consult (before a plan, error repeats, before done)",
+      "type": "boolean",
+      "default": true
+    },
+    "matchDescriptions": {
+      "title": "Match agent descriptions",
+      "description": "Also count an agent type as the architect when its description (not just its name) matches the pattern",
+      "type": "boolean",
+      "default": false
+    },
+    "maxCards": {
+      "title": "Cards before swimlanes",
+      "description": "Agent cards drawn side by side; more agents than this switch to swimlanes (1-6)",
+      "type": "number",
+      "default": 3
+    },
+    "view": {
+      "title": "View",
+      "description": "plan: a compact header on top, the plan with each task's subagents nested under it in the middle, the session log filling the foot; classic: the original stacked panels",
+      "type": "string",
+      "options": [
+        "plan",
+        "classic"
+      ],
+      "default": "plan"
+    },
+    "layout": {
+      "title": "Layout",
+      "description": "auto: a summary of at most 8 rows when the pane sits inline above the prompt, two columns from 110 columns when docked, one column otherwise",
+      "type": "string",
+      "options": [
+        "auto",
+        "compact",
+        "wide",
+        "mini"
+      ],
+      "default": "auto"
+    },
+    "palette": {
+      "title": "Palette",
+      "description": "skin wears the skins mod's skin when it is on (theme colours otherwise); theme follows your Claude Code theme (light, dark, colour-blind); pastel is fixed colours tuned for dark terminals",
+      "type": "string",
+      "options": [
+        "skin",
+        "theme",
+        "pastel"
+      ],
+      "default": "skin"
+    },
+    "style": {
+      "title": "Style",
+      "description": "native draws like the transcript: no coloured frames, one accent colour; cards is the original framed look",
+      "type": "string",
+      "options": [
+        "native",
+        "cards"
+      ],
+      "default": "native"
+    },
+    "background": {
+      "title": "Background",
+      "description": "Hex colour (#rrggbb) to fill the pane with, to match your terminal's background; empty keeps the surface's own",
+      "type": "string",
+      "default": ""
+    },
+    "planHint": {
+      "title": "Plan groups",
+      "description": "Ask Claude to file each task it creates under a group path (version / epic / story, or whatever fits), so the plan panel can draw the tree",
+      "type": "boolean",
+      "default": true
+    },
+    "planPolicy": {
+      "title": "Plan policy",
+      "description": "always: ask Claude to break any multi-step work into tasks filed by phase, so the plan panel always has a plan; hint: only ask it to group the tasks it makes on its own",
+      "type": "string",
+      "options": [
+        "always",
+        "hint"
+      ],
+      "default": "always"
+    },
+    "planPhases": {
+      "title": "Plan phases",
+      "description": "Comma-separated phases tasks are filed under when the policy is always, in order",
+      "type": "string",
+      "default": "Plano,Implementação,Qualidade"
+    },
+    "jiraSite": {
+      "title": "Jira site",
+      "description": "Your Jira site (your-team.atlassian.net): links to the anchored issue, and where the active read looks",
+      "type": "string",
+      "default": ""
+    },
+    "jiraFetch": {
+      "title": "Read cited Jira issues",
+      "description": "When you cite an issue key Claude does not read itself, read it from Jira through the Atlassian connector (asks permission like any tool call). Off: the plan anchors only to issues Claude reads",
+      "type": "boolean",
+      "default": false
+    },
+    "openOnStart": {
+      "title": "Open on start",
+      "description": "Open the pane when a session starts",
+      "type": "boolean",
+      "default": true
+    },
+    "cswap": {
+      "title": "Conta (cswap)",
+      "description": "Mostra no cabeçalho a conta ativa do cswap (claude-swap) e permite trocá-la com /os-deck account. Sem o cswap instalado a linha não aparece",
+      "type": "boolean",
+      "default": true
+    },
+    "cswapCommand": {
+      "title": "Comando do cswap",
+      "description": "O executável do cswap: um nome no PATH ou o caminho completo, quando o Claude Code não o acha no PATH",
+      "type": "string",
+      "default": "cswap"
+    },
+    "pet": {
+      "title": "Mascote",
+      "description": "Desenha o Clawd, um mascote em pixel art, no começo do cabeçalho da visão plan; ele mostra o que o Claude está fazendo. Some em painel estreito ou baixo e no layout mini",
+      "type": "boolean",
+      "default": true
+    },
+    "statusLine": {
+      "title": "Status line",
+      "description": "Show context, agents, consults and denials in the status line",
+      "type": "boolean",
+      "default": true
+    },
+    "github": {
+      "title": "GitHub",
+      "description": "Seção GitHub na visão plan: o pull request da branch (checks, review, issues que fecha) pelo gh CLI; sem PR, os PRs abertos do repositório",
+      "type": "boolean",
+      "default": true
+    },
+    "ghCommand": {
+      "title": "Comando do gh",
+      "description": "O executável do gh CLI, quando o Claude Code não o acha no PATH",
+      "type": "string",
+      "default": "gh"
+    },
+    "alerts": {
+      "title": "Alertas",
+      "description": "Notificação nativa quando um pedido de permissão espera por você e quando um turno longo termina",
+      "type": "boolean",
+      "default": true
+    },
+    "alertAfterS": {
+      "title": "Alerta de permissão (s)",
+      "description": "Segundos que um pedido de permissão espera antes do alerta",
+      "type": "number",
+      "default": 30
+    },
+    "alertTurnMin": {
+      "title": "Alerta de turno longo (min)",
+      "description": "Minutos que um turno precisa durar para o fim dele ser avisado",
+      "type": "number",
+      "default": 2
+    }
+  }
+}

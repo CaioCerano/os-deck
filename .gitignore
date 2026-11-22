@@ -1,0 +1,4 @@
+# Local rollback copies made while upgrading, not part of the mod.
+*.bak-*
+*.pre-*
+*.bak
