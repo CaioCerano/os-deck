@@ -1224,3 +1224,10 @@ test('U1: setup reads /d/ as that drive, as the file tools do', async () => {
   await proof.proofCommand($, ops, 'setup /c/repo', true)
   expect(w.p.draft?.root).toBe('C:/repo')
 })
+
+test('C3: a setup folder with no drive, beside the repository, is not taken into it', async () => {
+  const { w, $, ops } = world('C:/repo')
+  // Joined to the session's folder it would be C:/repo/beside, which walks up into the repository.
+  expect(await proof.proofCommand($, ops, 'setup /beside', true)).toContain('not inside a git repository')
+  expect(w.p.draft).toBe(null)
+})
