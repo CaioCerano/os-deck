@@ -259,7 +259,7 @@ async function landedAt($: EngineInterface, roots: readonly string[], path: stri
   }
   for (const root of roots) {
     const top = await resolved(root)
-    if (top && real.length > top.length + 1 && real[top.length] === '/' && real.slice(0, top.length) === top) return `${root}/${real.slice(top.length + 1)}`
+    if (top && real !== `${top}/` && real.startsWith(`${top}/`)) return `${root}/${real.slice(top.length + 1)}`
   }
   return real
 }
@@ -493,7 +493,6 @@ export async function proofSessionEnded(ops: ProofOps, reason: string): Promise<
 
 // ---------------------------------------------------------------- the command
 
-/** The top of the repository `from` is in, found by looking: before a press no git runs. */
 /**
  * A root's one spelling, the disk's: every later comparison is exact. Only capitals are taken from
  * there: where a link leads is another path, and git is asked of the one that was given.
@@ -504,6 +503,7 @@ async function asOnDisk($: EngineInterface, dir: string, at: string): Promise<st
   return (foldCase(disk) === foldCase(at) ? disk : at).replace(/^[a-z]:/, drive => drive.toUpperCase())
 }
 
+/** The top of the repository `from` is in, found by looking: before a press no git runs. */
 async function topOf($: EngineInterface, from: string): Promise<string | null> {
   let at = slashed(from).replace(/\/+$/, '')
   for (let i = 0; i < 32 && at; i++) {
@@ -532,7 +532,8 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
     return `OS-Deck proof:\n${roots.map(r => `${redact(r.root)}  ${r.verdict.state}: ${redact(r.verdict.reason)}`).join('\n')}`
   }
   if (verb === 'history') {
-    const root = words.length > 0 ? ((await topOf($, rest)) ?? rest) : (p.allowed[0]?.grant.root ?? (await topOf($, await $.session.cwd())))
+    // A named one is looked up in the store and never on the disk: a link can send this command.
+    const root = words.length > 0 ? rest : (p.allowed[0]?.grant.root ?? (await topOf($, await $.session.cwd())))
     if (!root) return 'OS-Deck proof: no repository here.'
     const { attempts, claims, reviews } = await loadRecords($, root)
     const when = (at: number) => new Date(at).toLocaleString()

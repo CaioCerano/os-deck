@@ -7,6 +7,7 @@
 - **Fixed a false Verified in 0.5.0.** In a Windows folder with case sensitivity on, an edit to a folder one case apart from an allowed repository (`Repo` beside `repo`) counted as inside it. Such an edit is now outside, and the task reads Inconclusive.
 - **Fixed two more of the same kind:** a check given a full path into the twin folder ran that folder's file, and a repository whose git worktree was set to the twin could stay Verified.
 - **A path in other capitals is never taken for the same file** when checks are read, not only for the file run and `package.json`.
+- History and saved check suggestions from 0.5.0 are not shown: a repository is now kept under its exact spelling.
 
 ## os-deck 0.5.0
 

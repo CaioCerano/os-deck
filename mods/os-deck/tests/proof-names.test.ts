@@ -3,7 +3,8 @@ import { expect, test } from 'claude-code/testing'
 
 import { samePath } from '../hooks/proof/revision'
 import { draftFor } from '../hooks/proof/setup'
-import { changedOnDisk, keyOf, pathFrom } from '../hooks/proof/watched'
+import { foldCase } from '../hooks/proof/names'
+import { changedOnDisk, pathFrom } from '../hooks/proof/watched'
 
 // Names resolved as npm, cmd and NTFS resolve them, on a whole disk with the repository in a folder of it.
 
@@ -81,7 +82,7 @@ test('A4: only ASCII case is folded', async () => {
   expect(samePath(`C:/wor${KELVIN}/repo`, 'C:/work/repo')).toBe(false)
   expect(samePath('c:/WORK/repo', 'C:/work/Repo')).toBe(false)
   expect(samePath('c:/work/Repo', 'C:/work/Repo')).toBe(true)
-  expect(keyOf(`pac${KELVIN}age.json`)).not.toBe(keyOf('package.json'))
+  expect(foldCase(`pac${KELVIN}age.json`)).not.toBe(foldCase('package.json'))
   expect((await draft({ [`${ROOT}/chec${KELVIN}.sh`]: 'exit 1' }, check(['bash', 'check.sh']))).problem).not.toBe(null)
   expect((await draft({ [`${ROOT}/package.json`]: pkg('jest'), [`${ROOT}/sub/pac${KELVIN}age.json`]: pkg('tsc --noEmit') }, check(['npm', 'run', 'lint'], 'sub'))).problem).not.toBe(null)
 })

@@ -24,9 +24,7 @@ export const isLocalPath = (path: string) => /^[A-Za-z]:[\\/]/.test(path) || /^\
 const isWindows = (path: string) => /^[A-Za-z]:/.test(path)
 
 /** One spelling of a directory: git's and the engine's differ in slashes and in the drive's letter. */
-export const spellRoot = (path: string) => {
-  return foldDrive(slashed(path).replace(/\/+$/, ''))
-}
+export const spellRoot = (path: string) => foldDrive(slashed(path).replace(/\/+$/, ''))
 
 export const samePath = (a: string, b: string) => spellRoot(a) === spellRoot(b)
 

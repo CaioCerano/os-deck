@@ -4,7 +4,7 @@
 
 Mods do Claude Code. Por enquanto, um:
 
-**713 testes automatizados** (686 escritos para o os-deck) · **[changelog de cada versão](mods/os-deck/CHANGELOG.pt-BR.md)** · [o que o os-deck acrescenta ao Flightdeck](mods/os-deck/README.pt-BR.md#o-que-o-os-deck-acrescenta-ao-flightdeck)
+**714 testes automatizados** (687 escritos para o os-deck) · **[changelog de cada versão](mods/os-deck/CHANGELOG.pt-BR.md)** · [o que o os-deck acrescenta ao Flightdeck](mods/os-deck/README.pt-BR.md#o-que-o-os-deck-acrescenta-ao-flightdeck)
 
 ![O mascote do os-deck mudando de estado enquanto a sessão trabalha](mods/os-deck/docs/media/mascot-states.gif)
 

@@ -22,8 +22,6 @@ export type DiskFile = { kind: 'file'; bytes: Uint8Array; hash: string; stamp: s
 /** The engine answers no read over 4 MiB, and one byte more has to be asked to see a file is larger. */
 const MAX_BYTES = 4 * 1024 * 1024 - 1
 
-/** A name as it is matched: programs load `Package.json` for `package.json` where the disk folds case. */
-export const keyOf = foldCase
 export const joined = (dir: string, name: string) => (dir && name ? `${dir}/${name}` : dir || name)
 
 /** A step Windows would open as another name, or that is no name. */
@@ -119,8 +117,8 @@ export function openDisk($: EngineInterface, root: string): Disk {
     for (let i = 0; i < steps.length; i++) {
       const entries = await entriesOf(at)
       if (!entries) return problem('its folder cannot be read')
-      const step = keyOf(steps[i] as string)
-      const found = entries.filter(x => keyOf(x.name) === step)
+      const step = foldCase(steps[i] as string)
+      const found = entries.filter(x => foldCase(x.name) === step)
       if (found.length > 1) return problem('two names differ only in case')
       const entry = found[0]
       if (!entry) return { kind: 'absent' }
@@ -149,7 +147,7 @@ export function openDisk($: EngineInterface, root: string): Disk {
   const readPrograms = async (path: string): Promise<DiskFile> => {
     const cut = path.lastIndexOf('/')
     const dir = path.slice(0, cut)
-    const name = keyOf(path.slice(cut + 1))
+    const name = foldCase(path.slice(cut + 1))
     const folder = await find(dir)
     if (!('entry' in folder)) return folder
     // A link for the folder would be followed by whoever starts it.
@@ -158,7 +156,7 @@ export function openDisk($: EngineInterface, root: string): Disk {
     if (!entries) return problem('its folder cannot be read')
     const found: [name: string, is: string, stamp: string][] = []
     for (const entry of entries) {
-      const key = keyOf(entry.name)
+      const key = foldCase(entry.name)
       if (key !== name && !key.startsWith(`${name}.`)) continue
       const at = folder.at.endsWith('/') ? `${folder.at}${entry.name}` : joined(folder.at, entry.name)
       if (entry.isLink) {
@@ -208,11 +206,10 @@ export function openDisk($: EngineInterface, root: string): Disk {
       return 'entry' in found && found.entry.kind === 'dir' ? entriesOf(found.at) : null
     },
     file(path) {
-      const key = path
-      const known = files.get(key)
+      const known = files.get(path)
       if (known) return known
       const read = readFile(path)
-      files.set(key, read)
+      files.set(path, read)
       return read
     },
   }

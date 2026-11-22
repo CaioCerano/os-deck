@@ -1297,3 +1297,14 @@ test('Z: a root is spelled as the disk has it, however setup was given it', asyn
     expect([given, w.p.draft?.root]).toEqual([given, 'C:/repo'])
   }
 })
+
+test('os-review: history of a named folder reads the store alone, as a link can send it', async () => {
+  for (const typed of [true, false]) {
+    const { $, ops } = world('C:/repo')
+    const asked: string[] = []
+    const fs = $.fs as unknown as { list: (path: string) => Promise<unknown>; stat: (path: string) => Promise<unknown> }
+    for (const call of ['list', 'stat'] as const) fs[call] = async path => (asked.push(`${call} ${path}`), Promise.reject(new Error('not to be asked')))
+    await proof.proofCommand($, ops, 'history C:/junction/to/a/share', typed)
+    expect([typed, asked]).toEqual([typed, []])
+  }
+})

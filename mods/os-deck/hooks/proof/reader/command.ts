@@ -161,6 +161,7 @@ export async function readCommand(r: Reading, words: readonly string[]): Promise
   if (!/^[a-z][a-z0-9-]*$/.test(word)) {
     // Under any other spelling a known program is another file. An unknown one, named whole, is only typed.
     if (isKnown || r.inScript) return refuse(r, 'a program is named by its plain name')
+    // Folded on purpose: outside only gets manual, and a program of this repository in other capitals must not.
     if (/^(?:\/|[A-Za-z]:)/.test(word) && !slashed(word).toLowerCase().startsWith(`${slashed(r.root).toLowerCase()}/`))
       return manualOnly(r, `what ${program} runs is not known`)
     return refuse(r, 'a program of the repository is not understood: name what runs it')
