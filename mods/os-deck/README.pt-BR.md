@@ -134,8 +134,11 @@ O que saber antes de apertar allow:
 - Só uma gramática pequena roda no automático: `claude plugin test`, `bun test`, `bash <arquivo>`, `node <arquivo.js>`, algumas ferramentas (`tsc`, `eslint`, `prettier --check`, `jest`, `vitest run`, `vite build`, `pytest`, `ruff check`, `mypy`) com flags conhecidas, e `npm run <script>` quando o script é feito de palavras simples ligadas por `&&` dessas. Um programa desconhecido como `cargo` ou `make` é só manual. O resto é recusado: aspas, globs, variáveis, redirecionamentos, `npx`, `pnpm`, `yarn`, `turbo` e configurações de `.npmrc` que não se sabe serem inofensivas. O setup deixa de fora o que não pode liberar e avisa.
 - A contagem de testes é lida do `bun test`, do `claude plugin test` e de `bash …/run_all.sh` que imprime linhas `[PASS]`/`[FAIL]`. Outros runners não podem verificar, então o setup não os propõe. Typecheck, lint e build valem pelo código de saída.
 - Um check de npm é recusado sob um workspace de uma pasta acima, que emprestaria a ele uma config que ninguém viu.
+- Um check de npm é recusado quando o nome de uma pasta tem o caractere que separa as entradas do PATH (`;` no Windows), que mandaria o npm para outra pasta.
+- Uma edição ainda rodando, ou esperando a sua permissão, quando uma tarefa termina conta como dessa tarefa, mesmo se for negada depois.
 - Um check que já começou quando você inicia outro turno termina; nenhum começa depois disso.
-- Uma alegação que você nunca revisou, mesmo substituída ou reaberta depois, mantém o repositório dela em "to review" pela sessão. Só a mais nova tem botão.
+- Uma alegação que você nunca revisou, mesmo substituída ou reaberta depois, mantém o repositório dela em "to review" pela sessão (as últimas 1.000 alegações). Só a mais nova tem botão.
+- Uma revisão cobre só os repositórios que ela listou.
 - Ele não vigia imports, dependências, config de ferramentas, o que scripts de shell chamam, nem config do npm na sua pasta pessoal e no ambiente: uma mudança ali roda sem ser vista.
 - Um check que reescreve um arquivo pelo qual é vigiado, como rodar o que acabou de compilar, não pode verificar.
 - Uma mudança sem chamada de ferramenta, de um editor ou outra sessão, pode levar até 30 segundos para deixar um check stale.

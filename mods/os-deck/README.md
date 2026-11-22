@@ -134,8 +134,11 @@ What to know before you press allow:
 - Only a small grammar runs automatically: `claude plugin test`, `bun test`, `bash <file>`, `node <file.js>`, a few tools (`tsc`, `eslint`, `prettier --check`, `jest`, `vitest run`, `vite build`, `pytest`, `ruff check`, `mypy`) with known flags, and `npm run <script>` where the script is plain words joined by `&&` of those. An unknown program such as `cargo` or `make` is manual only. Anything else is refused: quotes, globs, variables, redirects, `npx`, `pnpm`, `yarn`, `turbo`, and `.npmrc` settings not known to be harmless. Setup leaves out what it cannot allow and says so.
 - Test counts are read from `bun test`, `claude plugin test` and `bash …/run_all.sh` printing `[PASS]`/`[FAIL]` lines. Other test runners cannot verify, so setup does not propose them. Typecheck, lint and build go by exit code.
 - An npm check is refused under a workspace of a folder above, which would lend it config nobody was shown.
+- An npm check is refused where a folder's name holds the character that separates PATH entries (`;` on Windows), which would send npm into another folder.
+- An edit still running, or waiting on your permission, as a task completes counts as that task's, even if it is denied afterwards.
 - A check that has started when you begin another turn is left to finish; none is started after that.
-- A claim you never reviewed, even one replaced or reopened since, keeps its repository at "to review" for the session. Only its newest claim has a button.
+- A claim you never reviewed, even one replaced or reopened since, keeps its repository at "to review" for the session (its last 1,000 claims). Only its newest claim has a button.
+- A review covers only the repositories it listed.
 - It does not watch imports, dependencies, tool config, what shell scripts call, or npm config in your home folder and environment: a change there runs unseen.
 - A check that rewrites a file it is watched by, such as running what it just built, cannot verify.
 - A change with no tool call behind it, by an editor or another session, can take up to 30 seconds to turn a check stale.
