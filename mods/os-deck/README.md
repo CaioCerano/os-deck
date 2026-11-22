@@ -2,7 +2,7 @@
 
 **English** · [Português](README.pt-BR.md)
 
-**707 automated tests** (680 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
+**708 automated tests** (681 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
 
 ![The os-deck mascot changing states: thinking, reading, editing, running a command, subagents, waiting for your ok, failing, compacting, done, idle and asleep](docs/media/mascot-states.gif)
 
@@ -24,7 +24,7 @@ os-deck forked [Flightdeck](https://github.com/scasella/claude-flightdeck) at 0.
 | **[Forecasts](#alerts-and-forecasts)** | Turns left before the context fills, time left for the plan |
 | **History** | Turns, time, tasks, subagents, cost and wait per day, across sessions (`/os-deck today`, `/os-deck history`) |
 | **Plan, git and Jira** | Tasks as a tree by phase with their subagents, the state of each repository, the Jira epic |
-| **Tests** | 680 new tests, on top of 27 kept from Flightdeck's 28 |
+| **Tests** | 681 new tests, on top of 27 kept from Flightdeck's 28 |
 
 ## Author
 
@@ -147,6 +147,7 @@ What to know before you press allow:
 - After 1,000 claims in a session, checks stop running by themselves: press verify.
 - A repository that cannot be read for certain (links, submodules, nested repositories, conflicts, over 20,000 files) is never verified.
 - Once a repository is allowed, a task's start and completion wait up to 1.5 seconds while its content is read.
+- A file a check runs, and the `package.json` npm reads, must be spelled with the disk's exact capitals, or setup refuses.
 - **Windows only**, and tested on Windows 11 only. Elsewhere `/os-deck proof` refuses and nothing can be allowed; the rest of os-deck is unaffected.
 
 The design and its threat model are in [the proposal](docs/proposals/agent-proof.md).
@@ -247,7 +248,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Claude Code versions validated
 
-2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.5.0 passed its 707 tests on the 2.1.330 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
+2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.5.0 passed its 708 tests on the 2.1.330 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
 
 ## License
 

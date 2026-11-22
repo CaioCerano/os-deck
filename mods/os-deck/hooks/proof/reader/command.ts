@@ -8,7 +8,7 @@ import { ANY_EXT, aboveRoot, foldersAbove, joined } from '../watched'
 import { readBunConfig, readNpmConfig } from './config'
 import { BUN_TEST_FLAGS, MANIFESTS, STARTS_OTHERS, TOOLS, UNDERSTOOD } from './known'
 import type { Tool } from './known'
-import { Unshown, chainOf, insideRoot, manualOnly, refuse, watch, watchRun } from './reading'
+import { Unshown, asSpelled, chainOf, insideRoot, manualOnly, refuse, watch, watchRun } from './reading'
 import type { Reading } from './reading'
 import { objectIn, scriptsIn, showProblem } from './text'
 
@@ -67,6 +67,7 @@ async function readNpm(r: Reading, args: readonly string[]): Promise<void> {
   if (read.kind === 'problem') throw new Unshown(`${path} cannot be watched: ${read.why}`)
   const scripts = read.kind === 'file' ? scriptsIn(read.bytes) : null
   if (!scripts) throw new Unshown('the package.json of its folder cannot be read')
+  await asSpelled(r, path)
   if (!scripts.has(name)) throw new Unshown(`there is no script "${name}" to show`)
   for (const part of [`pre${name}`, name, `post${name}`]) {
     if (!scripts.has(part)) continue

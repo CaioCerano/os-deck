@@ -170,3 +170,12 @@ test('off Windows two files that differ only in case are refused, not watched as
   const d = await draftFor(disk(held), top, both, 'typed')
   expect(d.problem).toContain('case')
 })
+
+test('X1: what runs is named as the disk spells it, as a folder of Windows can be case-sensitive', async () => {
+  const lone = { [`${ROOT}/tools/check.js`]: '' }
+  for (const path of ['tools/Check.js', 'Tools/check.js']) expect([path, (await draft(lone, check(['node', path]))).problem !== null]).toEqual([path, true])
+  const script = { [`${ROOT}/check.js`]: '', [`${ROOT}/package.json`]: pkg('node check.js && node Check.js') }
+  expect((await draft(script)).problem).not.toBe(null)
+  expect((await draft({ [`${ROOT}/Package.json`]: pkg('tsc --noEmit') })).problem).not.toBe(null)
+  expect((await draft(lone, check(['node', 'tools/check.js']))).problem).toBe(null)
+})

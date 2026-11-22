@@ -48,6 +48,18 @@ export const insideRoot = (r: Reading, value: string): string => {
   return to.path
 }
 
+/**
+ * A path spelled as the disk has it, or the reading ends: a folder of Windows can be case-sensitive,
+ * and there another spelling is another file, or none, with another found in its place.
+ */
+export async function asSpelled(r: Reading, path: string): Promise<void> {
+  const steps = path.split('/')
+  for (let i = 0; i < steps.length; i++) {
+    const entries = await r.disk.list(steps.slice(0, i).join('/'))
+    if (!entries?.some(x => x.name === steps[i])) refuse(r, `${path} is not spelled as the disk has it`)
+  }
+}
+
 /** A file named to run: there as it is named, so nothing is found in its place, and then watched. */
 export async function watchRun(r: Reading, value: string): Promise<void> {
   const path = insideRoot(r, value)
@@ -55,5 +67,6 @@ export async function watchRun(r: Reading, value: string): Promise<void> {
   const file = await r.disk.file(path)
   if (file.kind === 'problem') throw new Unshown(`${path} cannot be watched: ${file.why}`)
   if (file.kind !== 'file') refuse(r, `there is no file ${path} to run`)
+  await asSpelled(r, path)
   watch(r, path)
 }
