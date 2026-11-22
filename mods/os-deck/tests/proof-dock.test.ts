@@ -62,6 +62,7 @@ const world = (on: On) => {
     return { value: { code: 0, signal: null } } as never
   })
   on('tool.call', (_$, e) => ({ result: e.tool === 'TaskCreate' ? { task: { id: '1' } } : { success: true } }) as never)
+  on('agent.spawn', () => ({ agentId: 'posing', model: 'claude-sonnet-5-5' }) as never)
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   return { clock, files, seen }
@@ -214,4 +215,14 @@ test('H2: where what runs cannot be resolved there is no automatic allow', async
   const text = await drawn($)
   expect(text).toContain('"key":"proof-manual')
   expect(text).not.toContain('"key":"proof-allow')
+})
+
+test('review 6: an agent cannot pose as verified by its title', { timeoutMs: 30_000 }, async ($, on) => {
+  world(on)
+  await $.command.run(command('proof setup'))
+  await $.turn.start({ text: 'go', turnId: 'R6' })
+  await $.agent.spawn({ prompt: 'p', description: '\u2713 checks · reviewed', subagentType: 'general-purpose', tool_use_id: 'r6', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+  const text = await drawn($)
+  expect(text).toContain('checks · reviewed')
+  expect(text).not.toContain('\u2713 checks')
 })

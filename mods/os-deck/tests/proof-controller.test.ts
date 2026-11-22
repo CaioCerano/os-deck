@@ -531,3 +531,113 @@ test('H2: what cannot be resolved is never automatic, whatever is pressed', asyn
   await proof.pressAllow($, ops, ROOT, w.p.draft?.digest ?? '', true)
   expect(w.p.allowed[0]?.grant.auto).toBe(false)
 })
+
+// ---------------------------------------------------------------- what the review found
+
+test('review 1: steady tool calls do not postpone the re-read', async () => {
+  const { w, $, ops, allow } = world()
+  await allow()
+  let set = 0
+  let cancelled = 0
+  const { clock } = $
+  ;($ as unknown as { clock: unknown }).clock = {
+    ...clock,
+    after: (ms: number, fn: () => void) => {
+      if (ms !== 2000) return clock.after(ms, fn)
+      set += 1
+      return { cancel: () => void (cancelled += 1) }
+    },
+  }
+  // Whatever timer an earlier test left is ended first.
+  await proof.proofSessionEnded(ops, 'resume')
+  await allow()
+  set = cancelled = 0
+  for (let i = 0; i < 5; i++) await proof.proofToolRan($, ops, null)
+  expect([set, cancelled]).toEqual([1, 0])
+  await proof.proofSessionEnded(ops, 'other')
+  expect(w.p.allowed).toEqual([])
+})
+
+test('review 2: a run that ends after a resume to the same session records nothing', async () => {
+  const { w, $, ops, allow } = world()
+  await allow()
+  let release = () => undefined as void
+  w.hold = new Promise(done => (release = done))
+  await proof.pressVerify($, ops, ROOT)
+  await pause(60)
+  expect(w.spawned.length).toBe(1)
+  await proof.proofSessionEnded(ops, 'resume')
+  await proof.proofSessionStarted($, ops)
+  release()
+  await pause(100)
+  expect(w.p.attempts).toEqual([])
+})
+
+test('review 3: an older read does not overwrite a newer pause', async () => {
+  const { w, $, ops, allow } = world()
+  await allow()
+  const allowed = w.files['package.json']!
+  w.files['package.json'] = JSON.stringify({ scripts: { test: 'node other.js' } })
+  let release = () => undefined as void
+  let waiting = () => undefined as void
+  const held = new Promise<void>(done => (release = done))
+  const isWaiting = new Promise<void>(done => (waiting = done))
+  const slow = {
+    ...ops,
+    setWork: async (fn: (x: ProofWork) => ProofWork) => {
+      await ops.setWork(fn)
+      waiting()
+      await held
+    },
+  }
+  const older = proof.refreshProof($, slow)
+  await isWaiting
+  w.files['package.json'] = allowed
+  await proof.refreshProof($, ops)
+  release()
+  await older
+  expect(w.p.paused).toEqual([])
+})
+
+test('review 4: an allowance made manual as a queued run starts is not run by itself', async () => {
+  const { w, $, ops, allow, work } = world()
+  await allow()
+  await work()
+  let read = 0
+  const asItStarts = {
+    ...ops,
+    work: async () => {
+      read += 1
+      return ops.work()
+    },
+    proof: async () => {
+      const seen = w.p
+      // The third look at the turn is the queue's: the allowance changes just after it is next read.
+      if (read === 3 && seen.allowed[0]?.grant.auto) {
+        w.p = { ...w.p, allowed: w.p.allowed.map(a => ({ ...a, grant: { ...a.grant, auto: false } })) }
+      }
+      return seen
+    },
+  }
+  await proof.proofTurnEnded($, asItStarts, { isMain: true, reason: 'answer' })
+  await pause(120)
+  expect(w.p.allowed[0]?.grant.auto).toBe(false)
+  expect(w.spawned).toEqual([])
+})
+
+test('review 5: a baseline is of the allowance it was drawn for', async () => {
+  const { w, $, ops, allow, work, endTurn, view } = world()
+  await allow()
+  await work()
+  await endTurn()
+  const b = (await view()).roots[0]!.baseline!
+  const replaced = {
+    ...ops,
+    setProof: async (fn: (p: ProofSession) => ProofSession) => {
+      w.p = { ...w.p, allowed: w.p.allowed.map(a => ({ ...a, grant: { ...a.grant, digest: 'allowed again' } })) }
+      await ops.setProof(fn)
+    },
+  }
+  await proof.pressBaseline($, replaced, ROOT, b.attemptId, b.checkId, b.passed, b.skipped)
+  expect(w.p.allowed[0]?.grant.checks[0]?.count?.minPassed).toBe(null)
+})

@@ -1489,7 +1489,7 @@ export const register: Register = (on, options) => {
         ]).then(xs => xs.map(x => (x as { value?: unknown }).value))
       : [null, null, false]
     const C = colorsOf(cfg, skinColors(sp, sc, sl === true))
-    const [m, u0, a, g, cards, lp, lines, t, r, v, now, realPlan, gt, acc, ghs] = await Promise.all([
+    const [m, u0, a, g, realCards, lp, realLines, t, r, v, now, realPlan, gt, acc, ghs] = await Promise.all([
       getMain($),
       getUsage($),
       getArchitect($),
@@ -1508,15 +1508,18 @@ export const register: Register = (on, options) => {
     ])
     const proofState = proofOf(await read($, proof))
     const drawnPlan = v.demoAt != null ? demoPlan(v.demoAt) : realPlan
-    // With proof on a check mark is the dock's alone to draw, not a subject's.
-    const pl = proofState.allowed.length > 0 || proofState.draft
+    // With proof on a check mark is the dock's alone to draw: not a subject's, an agent's title's or its words'.
+    const isProofOn = proofState.allowed.length > 0 || proofState.draft !== null
+    const cards = isProofOn ? realCards.map(x => ({ ...x, description: withoutMarks(x.description), type: withoutMarks(x.type) })) : realCards
+    const lines = isProofOn ? realLines.map(x => ({ ...x, who: withoutMarks(x.who), text: withoutMarks(x.text) })) : realLines
+    const pl = isProofOn
       ? {
           ...drawnPlan,
           tasks: drawnPlan.tasks.map(x => ({ ...x, subject: withoutMarks(x.subject), activeForm: withoutMarks(x.activeForm), group: x.group.map(withoutMarks) })),
           groups: (drawnPlan.groups ?? []).map(withoutMarks),
         }
       : drawnPlan
-    const proofSeen = proofState.allowed.length > 0 || proofState.draft ? workOf(await read($, proofWork)) : EMPTY_WORK
+    const proofSeen = isProofOn ? workOf(await read($, proofWork)) : EMPTY_WORK
     // The limits drawn: the session's, or cswap's reading of the active account (marked ~).
     const shown = shownLimits(u0.limits, acc, now)
     const u = { ...u0, limits: shown.limits }

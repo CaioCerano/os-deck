@@ -55,7 +55,11 @@ export const liveRuns = (): ReadonlyMap<string, string> => new Map([...live].map
 export const logShown = () => shownLog
 
 function cancelAll() {
-  for (const run of live.values()) run.signal.cancel()
+  for (const run of live.values()) {
+    // A resume can come back to the same id, which would take the end of this run as its own.
+    revoked.add(run.id)
+    run.signal.cancel()
+  }
   queued.clear()
   tails.clear()
   shownLog = null
@@ -115,12 +119,16 @@ export async function refreshProof($: EngineInterface, ops: ProofOps): Promise<v
     seen: reads.map(r => ({ root: r.root, revision: r.manifest?.revision ?? null, files: r.manifest?.files ?? [], at, reason: r.reason })),
   }))
   const paused = changed.filter(x => x.paths.length > 0)
-  if (JSON.stringify(paused) !== JSON.stringify((await ops.proof()).paused)) await ops.setProof(p => (p.session === session ? { ...p, paused } : p))
+  if (JSON.stringify(paused) !== JSON.stringify((await ops.proof()).paused)) await ops.setProof(p => (p.session === session && applied.get(session) === order ? { ...p, paused } : p))
 }
 
 function refreshSoon($: EngineInterface, ops: ProofOps) {
-  refreshTimer?.cancel()
-  refreshTimer = $.clock.after(REFRESH_AFTER_MS, () => void refreshProof($, ops).catch(() => undefined))
+  // The first call sets the time: put off by each, a busy turn would keep a green over what it changed.
+  if (refreshTimer) return
+  refreshTimer = $.clock.after(REFRESH_AFTER_MS, () => {
+    refreshTimer = null
+    void refreshProof($, ops).catch(() => undefined)
+  })
 }
 
 // ---------------------------------------------------------------- task events
@@ -226,7 +234,8 @@ export async function proofToolRan($: EngineInterface, ops: ProofOps, editedPath
 async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger: ProofAttempt['trigger']): Promise<void> {
   const session = await currentSession($, ops)
   const allowed = (await ops.proof()).allowed.find(a => a.grant.root === root)
-  if (!allowed) return
+  // Asked of the very allowance that runs: automatic may have been switched off since it was queued.
+  if (!allowed || (trigger === 'auto' && !allowed.grant.auto)) return
   const { grant, watched } = allowed
   const startedAt = await $.clock.now()
   const id = `${startedAt.toString(36)}-${++lastId}`
@@ -297,10 +306,7 @@ function queueRun($: EngineInterface, ops: ProofOps, root: string, trigger: Proo
       if (queued.get(root) !== turn) return
       queued.delete(root)
       // Owed as it was queued is not owed as it starts: a turn can begin, or automatic be switched off.
-      if (trigger === 'auto') {
-        if (!(await ops.work()).turnEnded) return
-        if ((await ops.proof()).allowed.find(a => a.grant.root === root)?.grant.auto !== true) return
-      }
+      if (trigger === 'auto' && !(await ops.work()).turnEnded) return
       await runRoot($, ops, root, trigger)
     })
     .catch(() => undefined)
@@ -371,6 +377,7 @@ function watch($: EngineInterface, ops: ProofOps) {
 export async function proofSessionEnded(ops: ProofOps, reason: string): Promise<void> {
   cancelAll()
   refreshTimer?.cancel()
+  refreshTimer = null
   // A clear and a resume go on in this process, with no session.start to begin the watch again.
   if (reason !== 'clear' && reason !== 'resume') {
     watchTimer?.cancel()
@@ -545,7 +552,7 @@ export async function pressBaseline($: EngineInterface, ops: ProofOps, root: str
   const checks = allowed.grant.checks.map(c => (c.id === checkId && c.count ? { ...c, count: { ...c.count, minPassed: passed, maxSkipped: skipped } } : c))
   // The same bytes run: only the judging changed, so the attempt seen still stands.
   if ((await digestOf(root, checks)) !== allowed.grant.digest) return
-  await ops.setProof(s => (s.session === session ? { ...s, allowed: s.allowed.map(a => (a.grant.root === root ? { ...a, grant: { ...a.grant, checks } } : a)) } : s))
+  await ops.setProof(s => (s.session === session ? { ...s, allowed: s.allowed.map(a => (a.grant.root === root && a.grant.digest === allowed.grant.digest && a.grant.at === allowed.grant.at ? { ...a, grant: { ...a.grant, checks } } : a)) } : s))
   await noteSaved(ops, await saveChecks($, root, checks))
 }
 
