@@ -912,3 +912,46 @@ test('work done while a task was back to pending is not that task’s', async ()
   await task('1', 'completed')
   expect(w.p.claims[0]?.changes).toEqual([])
 })
+
+test('guard: automatic switched off as a run reads starts nothing, under the same allowance', async () => {
+  const { w, $, allow, work, endTurn } = world()
+  await allow()
+  await work()
+  const { run } = $.process
+  ;($ as unknown as { process: { run: unknown } }).process.run = async (...args: Parameters<typeof run>) => {
+    if ((args[0] as string[]).includes('hash-object') && proof.liveRuns().size > 0)
+      w.p = { ...w.p, allowed: w.p.allowed.map(a => ({ ...a, grant: { ...a.grant, auto: false } })) }
+    return run(...args)
+  }
+  await endTurn()
+  expect(w.spawned).toEqual([])
+})
+
+test('guard: a cancel after a turn stopped the run still means no more runs', async () => {
+  const { w, $, ops, allow, work, endTurn } = world()
+  await allow()
+  await work()
+  const { run } = $.process
+  let armed = true
+  ;($ as unknown as { process: { run: unknown } }).process.run = async (...args: Parameters<typeof run>) => {
+    if (armed && (args[0] as string[]).includes('hash-object') && proof.liveRuns().size > 0) {
+      armed = false
+      await proof.proofTurnStarted(ops)
+    }
+    return run(...args)
+  }
+  const cancels = {
+    ...ops,
+    work: async () => {
+      const seen = await ops.work()
+      // The run has been told the turn began; only then does the person cancel it.
+      if (!armed && !seen.turnEnded && proof.liveRuns().size > 0) await proof.pressCancel(ROOT)
+      return seen
+    },
+  }
+  await proof.proofTurnEnded($, cancels, { isMain: true, reason: 'answer' })
+  await pause(200)
+  expect(w.spawned).toEqual([])
+  await endTurn()
+  expect(w.spawned).toEqual([])
+})
