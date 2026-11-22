@@ -3,7 +3,7 @@
 // What cannot be known is never "unchanged".
 import type { EngineInterface } from 'claude-code'
 
-import { isWindowsOddName } from './names'
+import { foldCase, isWindowsOddName } from './names'
 import { sha256 } from './values'
 
 export type Watched = readonly (readonly [path: string, hash: string | null])[]
@@ -23,7 +23,7 @@ export type DiskFile = { kind: 'file'; bytes: Uint8Array; hash: string; stamp: s
 const MAX_BYTES = 4 * 1024 * 1024 - 1
 
 /** A name as it is matched: programs load `Package.json` for `package.json` where the disk folds case. */
-export const keyOf = (path: string) => path.normalize('NFC').toLowerCase()
+export const keyOf = foldCase
 export const joined = (dir: string, name: string) => (dir && name ? `${dir}/${name}` : dir || name)
 
 /** A step Windows would open as another name, or that is no name. */
@@ -34,7 +34,7 @@ export const pathFrom = (root: string, dir: string, value: string): { path: stri
   let v = value.replace(/\\/g, '/')
   if (v === '') return 'unclear'
   const top = root.replace(/\\/g, '/').replace(/\/+$/, '')
-  const fold = (s: string) => (/^[A-Za-z]:/.test(top) ? s.toLowerCase() : s)
+  const fold = (s: string) => (/^[A-Za-z]:/.test(top) ? foldCase(s) : s)
   let steps = dir ? dir.split('/') : []
   if (top && fold(`${v}/`).startsWith(`${fold(top)}/`)) {
     v = v.slice(top.length + 1)
@@ -56,6 +56,30 @@ export const pathFrom = (root: string, dir: string, value: string): { path: stri
   return { path: steps.join('/') }
 }
 
+/** Ends a path that means a program's name with whatever extension, which is what a shell takes. */
+export const ANY_EXT = '.*'
+
+/** A path of a folder above the root is written `<folder>|<steps below it>`: no plain path has that mark. */
+export const aboveRoot = (folder: string, rest: string) => `${/^[A-Za-z]:$|^$/.test(folder) ? `${folder}/` : folder}|${rest}`
+const isAbove = (path: string) => /^(?:\/(?!\/)|[A-Za-z]:\/)[^|]*\|/.test(path)
+const belowFolder = (path: string) => {
+  const cut = path.indexOf('|')
+  return { folder: path.slice(0, cut), rest: path.slice(cut + 1) }
+}
+/** Where the disk is asked: such a folder by itself, anything else from the root. */
+const isWhole = (at: string) => /^(?:\/|[A-Za-z]:\/)/.test(at)
+
+/** The folders above a root, up to the drive's. */
+export const foldersAbove = (root: string): string[] => {
+  const out: string[] = []
+  let at = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  while (at.includes('/')) {
+    at = at.slice(0, at.lastIndexOf('/'))
+    out.push(at)
+  }
+  return out
+}
+
 export type Disk = {
   /** A folder's entries; null where it is not a folder that can be read without following a link. */
   list: (dir: string) => Promise<readonly Entry[] | null>
@@ -70,13 +94,15 @@ export function openDisk($: EngineInterface, root: string): Disk {
   const listings = new Map<string, Promise<readonly Entry[] | null>>()
   const files = new Map<string, Promise<DiskFile>>()
   const problem = (why: string): DiskFile => ({ kind: 'problem', why })
+  const onWindows = /^[A-Za-z]:/.test(root)
+  const placeOf = (at: string) => (isWhole(at) ? at : at ? `${root}/${at}` : root)
 
   const entriesOf = (at: string) => {
     const known = listings.get(at)
     if (known) return known
     const read = (async (): Promise<readonly Entry[] | null> => {
       try {
-        return await $.fs.list(at ? `${root}/${at}` : root)
+        return await $.fs.list(placeOf(at))
       } catch {
         return null
       }
@@ -87,8 +113,10 @@ export function openDisk($: EngineInterface, root: string): Disk {
 
   /** The entry a path names, each step a folder and no link, with the spelling the disk has. */
   const find = async (path: string): Promise<{ at: string; entry: Entry } | DiskFile> => {
-    const steps = path.split('/')
-    let at = ''
+    // A folder above the root is reached as the root is; the steps watched begin below it.
+    const above = isAbove(path) ? belowFolder(path) : null
+    const steps = (above ? above.rest : path).split('/')
+    let at = above ? above.folder : ''
     for (let i = 0; i < steps.length; i++) {
       const entries = await entriesOf(at)
       if (!entries) return problem('its folder cannot be read')
@@ -97,8 +125,11 @@ export function openDisk($: EngineInterface, root: string): Disk {
       if (found.length > 1) return problem('two names differ only in case')
       const entry = found[0]
       if (!entry) return { kind: 'absent' }
+      // Watched all the same, as it can be the file loaded; off Windows it can as well be another.
+      if (!onWindows && entry.name !== steps[i]) return problem('it is there in another case')
       if (entry.isLink) return problem('it is a link')
-      const here = joined(at, entry.name)
+      // The top folder is written with its slash.
+      const here = at.endsWith('/') ? `${at}${entry.name}` : joined(at, entry.name)
       if (i === steps.length - 1) return { at: here, entry }
       if (entry.kind === 'file') return { kind: 'absent' }
       if (entry.kind !== 'dir') return problem('it is no regular file')
@@ -107,16 +138,50 @@ export function openDisk($: EngineInterface, root: string): Disk {
     return { kind: 'absent' }
   }
 
+  /** All that a program's name can start in one folder: the name, with any extension or none. */
+  const readPrograms = async (path: string): Promise<DiskFile> => {
+    const cut = path.lastIndexOf('/')
+    const dir = path.slice(0, cut)
+    const name = keyOf(path.slice(cut + 1))
+    const folder = await find(dir)
+    if (!('entry' in folder)) return folder
+    // A link for the folder would be followed by whoever starts it.
+    if (folder.entry.kind !== 'dir') return { kind: 'absent' }
+    const entries = await entriesOf(folder.at)
+    if (!entries) return problem('its folder cannot be read')
+    const found: [name: string, is: string, stamp: string][] = []
+    for (const entry of entries) {
+      const key = keyOf(entry.name)
+      if (key !== name && !key.startsWith(`${name}.`)) continue
+      const at = joined(folder.at, entry.name)
+      if (entry.isLink) {
+        // npm installs these as links off Windows: where one leads is what it is.
+        const { realPath } = await $.fs.stat(placeOf(at), { resolve: true })
+        if (!realPath) return problem('where its link leads cannot be told')
+        found.push([entry.name, `link ${realPath}`, realPath])
+        continue
+      }
+      const read = await readFile(at)
+      if (read.kind === 'problem') return read
+      found.push(read.kind === 'file' ? [entry.name, read.hash, read.stamp] : [entry.name, entry.kind, ''])
+    }
+    if (found.length === 0) return { kind: 'absent' }
+    found.sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    const hash = await sha256(JSON.stringify(found.map(([n, is]) => [n, is])))
+    return { kind: 'file', bytes: new Uint8Array(0), hash, stamp: found.map(x => x[2]).join(' ') }
+  }
+
   const readFile = async (path: string): Promise<DiskFile> => {
     try {
-      if (path.split('/').some(isOddStep)) return problem('a path not understood')
+      if ((isAbove(path) ? belowFolder(path).rest : path).split('/').some(isOddStep)) return problem('a path not understood')
+      if (path.endsWith(ANY_EXT)) return await readPrograms(path.slice(0, -ANY_EXT.length))
       const found = await find(path)
       if (!('entry' in found)) return found
       const { at, entry } = found
       if (entry.kind === 'dir') return { kind: 'absent' }
       if (entry.kind !== 'file') return problem('it is no regular file')
       if (entry.size > MAX_BYTES) return problem('it is too large to read whole')
-      const { base64 } = await $.fs.read(`${root}/${at}`, { as: 'bytes', length: MAX_BYTES + 1 })
+      const { base64 } = await $.fs.read(placeOf(at), { as: 'bytes', length: MAX_BYTES + 1 })
       const bytes = Uint8Array.from(atob(base64), ch => ch.charCodeAt(0))
       if (bytes.length > MAX_BYTES) return problem('it is too large to read whole')
       const hash = await sha256(bytes)

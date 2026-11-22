@@ -5,7 +5,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import { gitHashRaw, gitRead, namesIn } from '../safe-git'
-import { isWindowsOddName } from './names'
+import { foldCase, isWindowsOddName } from './names'
 import { sha256 } from './values'
 
 export type Revision =
@@ -26,7 +26,7 @@ const isWindows = (path: string) => /^[A-Za-z]:/.test(path)
 /** One spelling of a directory: git's and the engine's differ in slashes and, on Windows, in case. */
 export const spellRoot = (path: string) => {
   const s = path.replace(/\\/g, '/').replace(/\/+$/, '')
-  return isWindows(s) ? s.toLowerCase() : s
+  return isWindows(s) ? foldCase(s) : s
 }
 
 export const samePath = (a: string, b: string) => spellRoot(a) === spellRoot(b)
@@ -59,7 +59,7 @@ async function presentFiles($: EngineInterface, root: string, paths: readonly st
     byDepth.set(depth, [...(byDepth.get(depth) ?? []), dir])
   }
   const foldsCase = isWindows(root)
-  const key = (name: string) => (foldsCase ? name.toLowerCase() : name)
+  const key = (name: string) => (foldsCase ? foldCase(name) : name)
   const listings = new Map<string, Map<string, { name: string; kind: string; isLink: boolean }>>()
   const spelled = new Map<string, string>([['', '']])
   // A directory is listed only once its parent showed it to be a directory and no link.

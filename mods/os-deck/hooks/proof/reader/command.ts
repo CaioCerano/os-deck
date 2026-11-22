@@ -3,9 +3,9 @@
 //
 // A package script is understood only as plain words joined by ` && `: no quote, glob, variable, escape,
 // redirect or assignment, so sh and cmd cannot read it two ways.
-import { joined } from '../watched'
+import { ANY_EXT, aboveRoot, foldersAbove, joined } from '../watched'
 import { readBunConfig, readNpmConfig } from './config'
-import { BUN_TEST_FLAGS, MANIFESTS, SHIM_EXTS, STARTS_OTHERS, TOOLS, UNDERSTOOD } from './known'
+import { BUN_TEST_FLAGS, MANIFESTS, STARTS_OTHERS, TOOLS, UNDERSTOOD } from './known'
 import type { Tool } from './known'
 import { Unshown, chainOf, insideRoot, manualOnly, refuse, watch, watchRun } from './reading'
 import type { Reading } from './reading'
@@ -26,16 +26,35 @@ export const commandsIn = (body: string): string[][] | null => {
   return commands.every(words => words.length > 0 && words.every(isPlain)) ? commands : null
 }
 
-/** npm puts each node_modules/.bin up to the root before every program of the same name, node among them. */
+/**
+ * npm puts every node_modules/.bin, up to the drive's, before any program of the same name, node and
+ * the shell among them, and cmd starts whatever extension is there.
+ */
 const watchShims = (r: Reading, program: string) => {
-  for (const dir of chainOf(r.check.dir))
-    for (const name of new Set([program, 'node'])) for (const ext of SHIM_EXTS) watch(r, joined(dir, `node_modules/.bin/${name}${ext}`))
+  for (const name of new Set([program, 'node', 'sh'])) {
+    const path = `node_modules/.bin/${name}${ANY_EXT}`
+    for (const dir of chainOf(r.check.dir)) watch(r, joined(dir, path))
+    for (const folder of foldersAbove(r.root)) watch(r, aboveRoot(folder, path))
+  }
+}
+
+/** A workspace above the root lends npm its config, which is nowhere on the screen. */
+async function readAbove(r: Reading): Promise<void> {
+  for (const folder of foldersAbove(r.root)) {
+    const path = aboveRoot(folder, 'package.json')
+    watch(r, path)
+    const read = await r.disk.file(path)
+    if (read.kind === 'absent') continue
+    const manifest = read.kind === 'file' ? objectIn(read.bytes) : null
+    if (!manifest || 'workspaces' in manifest) refuse(r, `${folder || '/'} can make this repository one of its workspaces`)
+  }
 }
 
 async function readNpm(r: Reading, args: readonly string[]): Promise<void> {
   const name = args.length === 2 && args[0] === 'run' ? args[1] : args.length === 1 && args[0] === 'test' ? 'test' : undefined
   if (!name || !/^[A-Za-z0-9_][A-Za-z0-9_:.-]*$/.test(name)) return refuse(r, 'of npm only `npm run <name>` is understood')
   await readNpmConfig(r)
+  await readAbove(r)
   if (r.own.seen.has(name)) return
   r.own.seen.add(name)
   if (r.depth > MAX_DEPTH) throw new Unshown('its scripts run one another too deep to show')
@@ -92,7 +111,9 @@ async function readClaude(r: Reading, args: readonly string[]): Promise<void> {
   const manifest = joined(dir, '.claude-plugin/plugin.json')
   watch(r, manifest)
   const read = await r.disk.file(manifest)
-  const hooks = read.kind === 'file' ? objectIn(read.bytes)?.hooks : null
+  const plugin = read.kind === 'file' ? objectIn(read.bytes) : null
+  if (read.kind !== 'absent' && !plugin) return refuse(r, 'its plugin.json cannot be read whole')
+  const hooks = plugin?.hooks
   if (hooks === undefined || hooks === null) return
   if (typeof hooks !== 'string') return refuse(r, 'hooks written inside plugin.json are not understood')
   await watchRun(r, joined(dir === r.check.dir ? '' : folder.replace(/\/+$/, ''), hooks.replace(/^\.\//, '')))
@@ -115,7 +136,9 @@ function readTool(r: Reading, name: string, tool: Tool, args: readonly string[])
     }
     if (tool.projects?.includes(arg) && next !== undefined && !isOption(next)) {
       const path = insideRoot(r, next)
-      watch(r, /\.json$/.test(path) ? path : joined(path, 'tsconfig.json'))
+      // A file of any name, or a folder's tsconfig.
+      watch(r, path)
+      if (!/\.json$/.test(path)) watch(r, joined(path, 'tsconfig.json'))
       i += 1
       continue
     }

@@ -31,6 +31,7 @@ const world = (files: Tree, odd: Odd = {}) => {
     store: { get: ran('store.get'), set: ran('store.set') },
     fs: {
       list: async (path: string) => {
+        if (path !== ROOT && !path.startsWith(`${ROOT}/`)) return []
         const dir = inRoot(path)
         seen.lists.push(dir)
         if (odd.failList?.includes(dir)) throw new Error('EACCES')
@@ -533,9 +534,9 @@ test('N1: a quote, which cmd and sh read as two things, is not understood', asyn
 test('N2: a program of node_modules/.bin, which npm puts first, is watched', async () => {
   const d = await bodyIn('bash tests/run_all.sh && tsc --noEmit', RUNNABLE)
   expect(d.problem).toBeNull()
-  for (const name of ['bash', 'bash.cmd', 'tsc', 'tsc.cmd', 'tsc.exe', 'tsc.ps1', 'node', 'node.exe', 'node.cmd']) expect(d.watched).toContainEqual([`node_modules/.bin/${name}`, null])
+  for (const name of ['bash', 'tsc', 'node', 'sh']) expect(d.watched).toContainEqual([`node_modules/.bin/${name}.*`, null])
   const inFolder = await draft({ 'app/package.json': pkg({ test: 'jest' }) }, [check({ dir: 'app' })])
-  for (const path of ['app/node_modules/.bin/jest.cmd', 'node_modules/.bin/jest.cmd']) expect(watchOf(inFolder)).toContain(path)
+  for (const path of ['app/node_modules/.bin/jest.*', 'node_modules/.bin/jest.*']) expect(watchOf(inFolder)).toContain(path)
 })
 
 test('N3: a config line not known to leave what runs alone is refused', async () => {

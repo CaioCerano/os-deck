@@ -79,8 +79,8 @@ test('absence is null, at any depth', async () => {
   expect(got.problems).toEqual([])
 })
 
-test('a name matches in any case on disk', async () => {
-  const got = await readOne({ 'Local/Lint.JS': 'x' }, 'local/lint.js')
+test('a name matches in any case on a disk of Windows', async () => {
+  const got = await readOne({ 'Local/Lint.JS': 'x' }, 'local/lint.js', { root: 'C:/repo' })
   expect(got.watched).toEqual([['local/lint.js', await sha(bytesOf('x'))]])
 })
 

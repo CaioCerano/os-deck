@@ -36,5 +36,3 @@ export const NPMRC_HARMLESS: readonly string[] = [
 
 /** In a folder a check runs in, and in those above it up to the root. */
 export const MANIFESTS: readonly string[] = ['package.json', '.npmrc', 'bunfig.toml']
-/** The spellings a program in node_modules/.bin has, which npm puts before every other. */
-export const SHIM_EXTS: readonly string[] = ['', '.cmd', '.exe', '.bat', '.com', '.ps1']

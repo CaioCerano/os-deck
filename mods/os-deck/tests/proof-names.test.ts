@@ -1,0 +1,97 @@
+import type { EngineInterface } from 'claude-code'
+import { expect, test } from 'claude-code/testing'
+
+import { samePath } from '../hooks/proof/revision'
+import { draftFor } from '../hooks/proof/setup'
+import { changedOnDisk, keyOf } from '../hooks/proof/watched'
+
+// Names resolved as npm, cmd and NTFS resolve them, on a whole disk with the repository in a folder of it.
+
+const ROOT = 'C:/work/repo'
+const KELVIN = String.fromCodePoint(0x212a)
+const check = (argv: string[] = ['npm', 'run', 'lint'], dir = '') => ({ id: 'lint', kind: 'lint' as const, description: '', argv, dir, timeoutS: 60, required: true })
+const pkg = (body: string) => JSON.stringify({ scripts: { lint: body } })
+
+const disk = (files: Record<string, string>, links: Record<string, string> = {}) => {
+  const list = async (path: string) => {
+    const at = `${path.replace(/\/+$/, '')}/`
+    const found = new Map<string, unknown>()
+    for (const file of [...Object.keys(files), ...Object.keys(links)]) {
+      if (!file.startsWith(at)) continue
+      const [name = '', ...more] = file.slice(at.length).split('/')
+      const isLink = more.length === 0 && file in links
+      found.set(name, { name, kind: more.length ? 'dir' : isLink ? 'other' : 'file', size: more.length || isLink ? 0 : files[file]!.length, mtimeMs: 1, isLink })
+    }
+    return [...found.values()]
+  }
+  const read = async (path: string) => {
+    if (!(path in files)) throw new Error('ENOENT')
+    return { base64: btoa(String.fromCharCode(...new TextEncoder().encode(files[path]))) }
+  }
+  const stat = async (path: string) => ({ kind: 'file', size: 1, mtimeMs: 1, isLink: path in links, realPath: links[path] ?? path })
+  return { fs: { list, read, stat } } as unknown as EngineInterface
+}
+const repo = (more: Record<string, string> = {}) => ({ [`${ROOT}/package.json`]: pkg('tsc --noEmit'), ...more })
+const draft = (files: Record<string, string>, c = check(), links: Record<string, string> = {}) => draftFor(disk(files, links), ROOT, [c], 'detected')
+
+/** What was watched at the press, against the disk as it is then. */
+const changedBy = async (later: Record<string, string>) => {
+  const files = repo()
+  const d = await draft(files)
+  expect(d.problem).toBe(null)
+  return changedOnDisk(disk({ ...files, ...later }), ROOT, d.watched)
+}
+
+test('A1: under a workspace of a folder above, npm is refused', async () => {
+  for (const at of ['C:/work', 'C:'])
+    for (const manifest of ['{"workspaces":["repo"]}', '{"workspaces":', JSON.stringify({ workspaces: { packages: ['*'] } })])
+      expect([at, manifest, (await draft(repo({ [`${at}/package.json`]: manifest }))).problem !== null]).toEqual([at, manifest, true])
+})
+
+test('A1: a manifest appearing above the root is a change', async () => {
+  expect((await changedBy({ 'C:/work/package.json': '{"workspaces":["repo"]}' })).length).toBe(1)
+  expect((await changedBy({ 'C:/package.json': '{}' })).length).toBe(1)
+})
+
+test('A2: a program planted in a folder above the root is a change', async () => {
+  for (const path of ['C:/work/node_modules/.bin/node.exe', 'C:/node_modules/.bin/tsc.cmd', 'C:/work/node_modules/.bin/sh'])
+    expect([path, (await changedBy({ [path]: 'x' })).length > 0]).toEqual([path, true])
+})
+
+test('A3: a program planted under any extension is a change', async () => {
+  for (const ext of ['', '.js', '.vbs', '.PY', '.cpl', '.anything']) {
+    const path = `${ROOT}/node_modules/.bin/tsc${ext}`
+    expect([ext, (await changedBy({ [path]: 'x' })).length > 0]).toEqual([ext, true])
+  }
+  expect(await changedBy({ [`${ROOT}/node_modules/.bin/tscx.cmd`]: 'x' })).toEqual([])
+})
+
+test('a program that is a link, as npm installs off Windows, is bound by where it leads', async () => {
+  const at = `${ROOT}/node_modules/.bin/tsc`
+  const d = await draft(repo(), check(), { [at]: `${ROOT}/node_modules/typescript/bin/tsc` })
+  expect(d.problem).toBe(null)
+  expect((await changedOnDisk(disk(repo(), { [at]: 'C:/elsewhere/tsc' }), ROOT, d.watched)).length).toBe(1)
+})
+
+test('A4: only ASCII case is folded', async () => {
+  expect(samePath(`C:/wor${KELVIN}/repo`, 'C:/work/repo')).toBe(false)
+  expect(samePath('c:/WORK/repo', 'C:/work/Repo')).toBe(true)
+  expect(keyOf(`pac${KELVIN}age.json`)).not.toBe(keyOf('package.json'))
+  expect((await draft({ [`${ROOT}/chec${KELVIN}.sh`]: 'exit 1' }, check(['bash', 'check.sh']))).problem).not.toBe(null)
+  expect((await draft({ [`${ROOT}/package.json`]: pkg('jest'), [`${ROOT}/sub/pac${KELVIN}age.json`]: pkg('tsc --noEmit') }, check(['npm', 'run', 'lint'], 'sub'))).problem).not.toBe(null)
+})
+
+test('A4: off Windows another case is another file', async () => {
+  const $ = disk({ '/work/repo/Check.sh': 'exit 1' })
+  expect((await draftFor($, '/work/repo', [check(['bash', 'check.sh'])], 'typed')).problem).not.toBe(null)
+})
+
+test('tsc takes a project named by a file of any name', async () => {
+  const d = await draft({ [`${ROOT}/tsconfig.strict`]: '{}' }, check(['tsc', '-p', 'tsconfig.strict']))
+  expect(d.watched.map(([path]) => path)).toContain('tsconfig.strict')
+})
+
+test('a plugin manifest that cannot be read whole is refused', async () => {
+  const d = await draft({ [`${ROOT}/.claude-plugin/plugin.json`]: '{"hooks":' }, check(['claude', 'plugin', 'test', '.']))
+  expect(d.problem).not.toBe(null)
+})
