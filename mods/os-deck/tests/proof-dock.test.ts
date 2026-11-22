@@ -37,6 +37,7 @@ const world = (on: On) => {
     const entries = path === '/repo' ? [{ name: '.git', kind: 'dir', size: 0, isLink: false }, ...Object.keys(files).map(name => ({ name, kind: 'file', size: 20, isLink: false }))] : []
     return { value: entries } as never
   })
+  on('fs.stat', (_$, e) => ({ value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: (e as unknown as { path: string }).path } }) as never)
   on('fs.read', (_$, e) => ({ value: files[String((e as unknown as { path: string }).path).split(/[\\/]/).pop() ?? ''] ?? '' }) as never)
   on('process.run', (_$, e) => {
     const x = e as unknown as { argv: string[]; stdin?: string; init?: { stdin?: string } }
@@ -90,7 +91,7 @@ test('setup, allow, claim, run, baseline, verified, review: all by the dock', { 
   for (const part of ['proof setup', 'bun test', 'allow', 'manual only', 'without a permission prompt']) expect(text).toContain(part)
   expect([seen.spawned.length, seen.git]).toEqual([0, 0])
 
-  await press($, 'proof-allow')
+  await press($, keyLike(await drawn($), 'proof-allow'))
   text = await drawn($)
   expect(text).not.toContain('proof setup')
   expect(text).toContain('pending')
@@ -134,4 +135,63 @@ test('a command nobody typed sets up nothing', async ($, on) => {
   const out = await $.command.run(command('proof setup', 'sdk'))
   expect(out.text).toContain('type this command yourself')
   expect(await drawn($)).not.toContain('proof setup')
+})
+
+// ---------------------------------------------------------------- what the red team got past
+
+/** Claimed, run and its baseline accepted: verified, as a person would get there. */
+const verified = async ($: any, w: ReturnType<typeof world>, subject = 'Change a', editor?: string) => {
+  await $.command.run(command('proof setup'))
+  await press($, keyLike(await drawn($), 'proof-allow'))
+  await $.turn.start({ text: 'go', turnId: 'V1' })
+  await $.tool.call({ tool: 'TaskCreate', subject, description: 'd', tool_use_id: 'v1' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress', tool_use_id: 'v2' } as never)
+  w.files['a.ts'] = 'two'
+  if (editor) await $.tool.call({ tool: 'Write', file_path: '/repo/a.ts', content: 'two', agentId: editor, tool_use_id: 'v3' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', tool_use_id: 'v4' } as never)
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'V1', reason: 'answer' } as never)
+  await w.clock.advance(600)
+  await pause(200)
+  await press($, keyLike(await drawn($), 'proof-baseline'))
+}
+
+test('C2: a verified mark does not move onto a new subject', { timeoutMs: 30_000 }, async ($, on) => {
+  await verified($, world(on))
+  expect(await drawn($)).toContain('"proof-claim:')
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', subject: 'Security audit', tool_use_id: 'v5' } as never)
+  await pause()
+  expect(await drawn($)).not.toContain('"proof-claim:')
+})
+
+test('C2: a verified mark does not move onto a task created with its id', { timeoutMs: 30_000 }, async ($, on) => {
+  await verified($, world(on))
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Change a', description: 'another', tool_use_id: 'v6' } as never)
+  await pause()
+  expect(await drawn($)).not.toContain('"proof-claim:')
+})
+
+test("H7: another agent's write is not verified as the task's", { timeoutMs: 30_000 }, async ($, on) => {
+  await verified($, world(on), 'Change a', 'agent-other')
+  expect(await drawn($)).toContain('inconclusive')
+})
+
+test('M5: a subject cannot pose as verified', { timeoutMs: 30_000 }, async ($, on) => {
+  world(on)
+  await $.command.run(command('proof setup'))
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Auth \u2713 checks · reviewed', description: 'd', tool_use_id: 'p' } as never)
+  expect(await drawn($)).not.toContain('\u2713 checks')
+})
+
+test('H8: no allow where the screen cannot be drawn whole', async ($, on) => {
+  world(on)
+  await $.command.run(command('proof setup'))
+  const text = await drawn($, paneAt(30, 40))
+  expect(text).toContain('widen')
+  expect(text).not.toContain('"key":"proof-allow')
+})
+
+test('M7: the classic view does not send a person to a button it has not', { options: { view: 'classic' } }, async ($, on) => {
+  world(on)
+  const out = await $.command.run(command('proof setup'))
+  expect(out.text).toContain('plan view')
 })

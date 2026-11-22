@@ -139,7 +139,8 @@ import {
 } from './proof/controller'
 import type { ProofActions } from './proof/model'
 import { presentProof } from './proof/present'
-import { logTail, proofNotices, proofSummary, setupDraft, taskDetail, taskMark } from './proof/view'
+import { logTail, proofNotices, proofSummary, setupDraft, taskDetail, taskMark, withoutMarks } from './proof/view'
+import { isClaimOf } from './proof/lifecycle'
 import type { Section } from './proof/view'
 import { EMPTY_PROOF, EMPTY_WORK, proofOf, workOf } from './proof/state'
 import type { ProofOps } from './proof/state'
@@ -669,6 +670,7 @@ async function autoEpic($: EngineInterface, isOn: boolean, siteOpt: string | nul
   }
 }
 
+const MIN_ALLOW_COLUMNS = 40
 const PLAN_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite', 'ExitPlanMode'])
 
 /**
@@ -1024,7 +1026,9 @@ export const register: Register = (on, options) => {
       return { text: 'OS-Deck reset.' }
     }
     if (verb === 'proof') {
-      const text = await proofCommand($, proofOps($), e.args.trim().slice(verb.length), e.origin.kind === 'composer')
+      const said = await proofCommand($, proofOps($), e.args.trim().slice(verb.length), e.origin.kind === 'composer')
+      // Its setup, buttons and marks are the plan view's alone.
+      const text = cfg.view === 'plan' ? said : `${said} Agent Proof is drawn only in the plan view: set \`view\` to plan with /plugin configure os-deck.`
       void openPane($).catch(() => undefined)
       return { text }
     }
@@ -1294,10 +1298,12 @@ export const register: Register = (on, options) => {
           const now = await $.clock.now()
           const { before, after } = await notePlan($, e.tool, input, ran.result, now)
           if (e.tool === 'TaskUpdate' || e.tool === 'TaskCreate') {
-            const made = e.tool === 'TaskCreate' ? after.tasks.find(x => !before.tasks.some(y => y.id === x.id))?.id : input.taskId
+            // The result's id, not the one new to the plan: an id used again is new to neither.
+            const created = e.tool === 'TaskCreate'
+            const made = created ? (ran.result as { task?: { id?: unknown } } | null)?.task?.id : input.taskId
             const description = typeof input.description === 'string' ? input.description : null
             if (typeof made === 'string')
-              await quietly($, 'proof task', () => proofTaskChanged($, proofOps($), { before, after, taskId: made, agentId: e.agentId ?? null, description }))
+              await quietly($, 'proof task', () => proofTaskChanged($, proofOps($), { before, after, taskId: made, agentId: e.agentId ?? null, description, created }))
           }
           if (e.tool === 'TaskUpdate') await afterPlanChange($, before, after, input, e.agentId, now).catch(err => say($, 'flightdeck', `plan update failed: ${String(err)}`, 'error'))
           if (e.tool === 'TaskUpdate' && input.status === 'completed') void recordDay($, now, { tasks: 1 })
@@ -1315,7 +1321,7 @@ export const register: Register = (on, options) => {
         const path = EDIT_TOOLS.has(e.tool) ? (input.file_path ?? input.notebook_path) : null
         // A failed shell call can have changed files too, and an MCP tool writes as it likes.
         if (EDIT_TOOLS.has(e.tool) || e.tool === 'Bash' || e.tool === 'PowerShell' || String(e.tool).startsWith('mcp__'))
-          await quietly($, 'proof tool', () => proofToolRan($, proofOps($), typeof path === 'string' && !hasFailed ? path : null))
+          await quietly($, 'proof tool', () => proofToolRan($, proofOps($), typeof path === 'string' && !hasFailed ? path : null, e.agentId ?? null))
       }
       const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
       if (didRun && (isEdit || e.tool === 'Bash' || e.tool === 'PowerShell')) void pokeGit($, cfg, false)
@@ -1500,8 +1506,16 @@ export const register: Register = (on, options) => {
       getAccount($),
       getGithub($),
     ])
-    const pl = v.demoAt != null ? demoPlan(v.demoAt) : realPlan
     const proofState = proofOf(await read($, proof))
+    const drawnPlan = v.demoAt != null ? demoPlan(v.demoAt) : realPlan
+    // With proof on a check mark is the dock's alone to draw, not a subject's.
+    const pl = proofState.allowed.length > 0 || proofState.draft
+      ? {
+          ...drawnPlan,
+          tasks: drawnPlan.tasks.map(x => ({ ...x, subject: withoutMarks(x.subject), activeForm: withoutMarks(x.activeForm), group: x.group.map(withoutMarks) })),
+          groups: (drawnPlan.groups ?? []).map(withoutMarks),
+        }
+      : drawnPlan
     const proofSeen = proofState.allowed.length > 0 || proofState.draft ? workOf(await read($, proofWork)) : EMPTY_WORK
     // The limits drawn: the session's, or cswap's reading of the active account (marked ~).
     const shown = shownLimits(u0.limits, acc, now)
@@ -2284,9 +2298,17 @@ export const register: Register = (on, options) => {
         const by = cards.find(x => x.id === task.claim.agentId)
         if (by) task.claim = { ...task.claim, agentId: cardTitle(by) }
       }
-      const proofDraw = { els: els as never, colors: C, width: inner, act: proofActions($) }
-      const proofTask = new Map(v.demoAt != null ? [] : proofVm.tasks.map(x => [x.claim.taskId, x] as const))
-      const proofHead = [setupDraft(proofDraw, proofVm.draft), proofSummary(proofDraw, proofVm), proofNotices(proofDraw, proofVm), logTail(proofDraw, proofVm)]
+      const proofDraw = { els: els as never, colors: C, width: Math.max(1, Math.min(inner, e.props.bodyColumns - (native ? 0 : 4))), act: proofActions($) }
+      // An id is not a task: a mark is drawn only on the completed task its claim is of.
+      const ofThisTask = proofVm.tasks.filter(x => {
+        const task = realPlan.tasks.find(y => y.id === x.claim.taskId && y.source === 'task')
+        return !x.claim.withdrawn && task?.status === 'completed' && isClaimOf(x.claim, task)
+      })
+      const proofTask = new Map(v.demoAt != null ? [] : ofThisTask.map(x => [x.claim.taskId, x] as const))
+      // Clipped, a command reads as another: none is allowed from a screen that cannot draw it whole.
+      const tooNarrow = e.props.bodyColumns < MIN_ALLOW_COLUMNS
+      const offered = proofVm.draft && tooNarrow ? { ...proofVm.draft, problem: `widen the dock to ${MIN_ALLOW_COLUMNS} columns` } : proofVm.draft
+      const proofHead = [setupDraft(proofDraw, offered), proofSummary(proofDraw, proofVm), proofNotices(proofDraw, proofVm), logTail(proofDraw, proofVm)]
       const openTask = proofVm.tasks.find(x => x.claim.id === proofVm.openClaim)
       const openDetail = openTask ? taskDetail(proofDraw, proofVm, openTask, 2) : null
       const proofRows = proofHead.reduce((n, x) => n + x.rows, 0) + (openDetail?.rows ?? 0)

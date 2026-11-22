@@ -8,7 +8,7 @@ import type { Colors } from '../core'
 import { redact } from '../redact'
 import { outcomeOf } from './checks'
 import type { Draft, ProofActions, ProofViewModel, RootView, TaskView } from './model'
-import { UNSHOWN, quoted, unshowable } from './showable'
+import { UNSHOWN, hasSecret, quoted, unshowable } from './showable'
 import type { ProofState } from './verdict'
 
 export type ProofDraw = {
@@ -42,7 +42,13 @@ const safe = (text: string): string =>
     .trim()
 
 /** A path as it is, or escaped where a character of it would not show. */
-const shown = (text: string): string => (text === '' || UNSHOWN.test(text) ? quoted(text) : text)
+const shown = (raw: string): string => {
+  const text = hasSecret(raw) ? redact(raw) : raw
+  return text === '' || UNSHOWN.test(text) ? quoted(text) : text
+}
+
+/** A plan's own words with the marks that are ours alone to draw taken out. */
+export const withoutMarks = (text: string): string => text.replace(PASS_MARKS, '*')
 const shownArg = (arg: string): string => (BARE_ARG.test(arg) ? arg : quoted(arg))
 
 // Counted wide where unsure: an early wrap loses nothing, a late one is cut by the terminal.
@@ -279,7 +285,8 @@ export const proofSummary = (d: ProofDraw, vm: ProofViewModel): Section => {
     const { glyph, word, color } = lookOf(C, state)
     const runs: Run[] = []
     if (state === 'verified') {
-      const own = tasks.filter(t => changedRoots(t).includes(root.root))
+      // One whose changes are not known could be of this root.
+      const own = tasks.filter(t => changedRoots(t).includes(root.root) || !t.claim.hasBaseline || changedRoots(t).length === 0)
       const open = own.filter(t => !t.isReviewed).length
       const isReviewed = own.length > 0 && open === 0
       const isNarrow = s.width < 50
@@ -504,7 +511,7 @@ export const taskDetail = (d: ProofDraw, vm: ProofViewModel, task: TaskView, ind
   if (canReview) {
     s.say('mark reviewed covers:', { dim: true })
     for (const { root, revision } of drawn) s.exact(`${shown(root)} @ ${shortRevision(revision)}`, '  ')
-    presses.push({ key: keyOf('review', claim.id), label: 'mark reviewed', onPress: () => d.act.review(claim.id, drawn.map(x => ({ ...x }))) })
+    presses.push({ key: keyOf('review', claim.id, ...drawn.map(x => x.revision)), label: 'mark reviewed', onPress: () => d.act.review(claim.id, drawn.map(x => ({ ...x }))) })
   }
   s.presses(presses)
   return s.section()
@@ -644,8 +651,8 @@ export const setupDraft = (d: ProofDraw, draft: Draft | null): Section => {
   s.say('either one lasts for this session', { dim: true })
   const { root, digest } = draft
   s.presses([
-    { key: 'proof-allow', label: 'allow', primary: true, beside: 'automatic', onPress: () => d.act.allow(root, digest, true) },
-    { key: 'proof-manual', label: 'manual only', onPress: () => d.act.allow(root, digest, false) },
+    { key: keyOf('allow', digest), label: 'allow', primary: true, beside: 'automatic', onPress: () => d.act.allow(root, digest, true) },
+    { key: keyOf('manual', digest), label: 'manual only', onPress: () => d.act.allow(root, digest, false) },
     discard,
   ])
   return s.section()

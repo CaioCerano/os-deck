@@ -401,7 +401,7 @@ test('proof view: a withdrawn claim is never green, whatever verdict it is hande
   const drawn = await s.show(d => [taskMark(d, task), taskDetail(d, vm, task)], 80)
   expect(allOf(drawn.tree).some(el => el.props?.color === NATIVE.gate)).toBe(false)
   expect(PASS_MARK.test(linesOf(drawn.tree).join(''))).toBe(false)
-  expect(keysOf(drawn.tree)).not.toContain('proof-review:"S:7:1"')
+  expect(keysOf(drawn.tree)).not.toContain(`proof-review:${CLAIM}:"${REV}"`)
   await drawn.close()
 })
 
@@ -590,7 +590,7 @@ test('proof setup: says what is inherited and what Allow means', SWEEP, async ($
     expect(words).toContain('not covered: ignored files, including new folders that ignore themselves')
     expect(words).toContain('After Allow, code agents write into tests runs automatically at the end of a turn, without a permission prompt.')
     expect(words).toContain('allow automatic')
-    const allow = buttonsOf(drawn.tree).find(x => x.props?.key === 'proof-allow')
+    const allow = buttonsOf(drawn.tree).find(x => String(x.props?.key).startsWith('proof-allow'))
     expect(allow?.props?.variant).toBe('primary')
     await drawn.close()
   }
@@ -622,7 +622,7 @@ test('proof setup: each baseline a press binds is in words at every width, or sa
     expect(part('third', 'fourth · test'), `third at ${width}`).toContain('no baseline accepted yet: after a first run you accept its counts')
     expect(part('fourth', 'fifth · test'), `fourth at ${width}`).toContain('no baseline accepted yet')
     expect(part('fifth', 'typecheck · required'), `fifth at ${width}`).toContain('no baseline accepted yet, and no way to count its tests: it cannot verify')
-    expect(keysOf(drawn.tree)).toContain('proof-allow')
+    expect(keysOf(drawn.tree)).toContain(allowKey())
     await drawn.close()
   }
 })
@@ -686,7 +686,7 @@ test('proof setup: ordinary commands and scripts can be allowed', SWEEP, async (
   const bodies = ['bun test', 'cross-env NODE_ENV=test jest --ci', 'tsc -p tsconfig.json --noEmit', 'vitest run\n', 'node --test\ttests/', 'eslint . && prettier --check .']
   for (const body of bodies) {
     const drawn = await s.show(setup(draftOf({ scripts: [{ checkId: 'test', name: 'test', body }] })), 80)
-    expect(keysOf(drawn.tree), body).toEqual(['proof-allow', 'proof-manual', 'proof-discard'])
+    expect(keysOf(drawn.tree).map(k => k.split(':')[0]), body).toEqual(['proof-allow', 'proof-manual', 'proof-discard'])
     await drawn.close()
   }
 })
@@ -695,7 +695,7 @@ test('proof setup: the most that may be allowed is all drawn, presses included',
   const s = stage($, on)
   for (const body of ['echo one '.repeat(1740).trimEnd(), Array.from({ length: 390 }, (_, i) => `echo ${i}`).join('\n')]) {
     const drawn = await s.show(setup(draftOf({ scripts: [{ checkId: 'test', name: 'test', body }] })), 24)
-    expect(keysOf(drawn.tree)).toEqual(['proof-allow', 'proof-manual', 'proof-discard'])
+    expect(keysOf(drawn.tree).map(k => k.split(':')[0])).toEqual(['proof-allow', 'proof-manual', 'proof-discard'])
     const over: string[] = []
     expect(layout(drawn.boxes[0]!, 24, over)).toBe(drawn.sections[0]?.rows)
     expect(over).toEqual([])
@@ -726,8 +726,8 @@ test('proof setup: allow, manual only and discard pass what was drawn', SWEEP, a
     // What changes after the drawing is not what was seen.
     draft.root = 'C:/elsewhere'
     draft.digest = 'changed'
-    expect(await drawn.press('proof-allow')).toEqual([['allow', ROOT, digest, true]])
-    expect(await drawn.press('proof-manual')).toEqual([['allow', ROOT, digest, false]])
+    expect(await drawn.press(allowKey('allow', digest))).toEqual([['allow', ROOT, digest, true]])
+    expect(await drawn.press(allowKey('manual', digest))).toEqual([['allow', ROOT, digest, false]])
     expect(await drawn.press('proof-discard')).toEqual([['discardDraft']])
     await drawn.close()
   }
@@ -740,7 +740,7 @@ test('proof view: every press of every state passes what was drawn', SWEEP, asyn
   const s = stage($, on)
   const toggle = { [`proof-claim:${CLAIM}`]: ['toggleClaim', 'S:7:1'] }
   const again = { [`proof-verify:${CLAIM}:${PATH}`]: ['verify', ROOT] }
-  const review = { [`proof-review:${CLAIM}`]: ['review', 'S:7:1', [{ root: ROOT, revision: REV }]] }
+  const review = { [`proof-review:${CLAIM}:"${REV}"`]: ['review', 'S:7:1', [{ root: ROOT, revision: REV }]] }
   const log = (id: string) => ({ [`proof-log:${CLAIM}:${PATH}:"${id}"`]: ['showLog', ROOT, id] })
   const cases: [name: string, presses: Record<string, unknown[]>][] = [
     ['pending, automatic', { ...toggle, ...again, ...review }],
@@ -789,7 +789,7 @@ test('proof view: several roots each press for themselves', SWEEP, async ($, on)
   const drawn = await s.show(everything(STATES['two roots of one name']!()), 80)
   expect(await drawn.press(`proof-verify:${CLAIM}:${PATH}`)).toEqual([['verify', ROOT]])
   expect(await drawn.press(`proof-verify:${CLAIM}:"${OTHER}"`)).toEqual([['verify', OTHER]])
-  expect(await drawn.press(`proof-review:${CLAIM}`)).toEqual([['review', 'S:7:1', [{ root: ROOT, revision: REV }, { root: OTHER, revision: REV }]]])
+  expect(await drawn.press(`proof-review:${CLAIM}:"${REV}":"${REV}"`)).toEqual([['review', 'S:7:1', [{ root: ROOT, revision: REV }, { root: OTHER, revision: REV }]]])
   await drawn.close()
 })
 
@@ -803,7 +803,7 @@ test('proof view: a press keeps what was drawn when the model changes under it',
   vm.tasks[0]!.drawn[0]!.revision = NEXT
   expect(await drawn.press(`proof-resume:${PATH}`)).toEqual([['resume', ROOT, ['package.json']]])
   expect(await drawn.press(`proof-baseline:${PATH}:"A1":"test"`)).toEqual([['acceptBaseline', ROOT, 'A1', 'test', 146, 1]])
-  expect(await drawn.press(`proof-review:${CLAIM}`)).toEqual([['review', 'S:7:1', [{ root: ROOT, revision: REV }]]])
+  expect(await drawn.press(`proof-review:${CLAIM}:"${REV}"`)).toEqual([['review', 'S:7:1', [{ root: ROOT, revision: REV }]]])
   await drawn.close()
 })
 
@@ -855,5 +855,28 @@ test('proof view: the log shows its end, as plain text', SWEEP, async ($, on) =>
   expect(lines.some(line => line.includes('earlier rows not shown'))).toBe(true)
   expect(lines.join('')).not.toContain('line 0 ')
   expect(PASS_MARK.test(lines.join(''))).toBe(false)
+  await drawn.close()
+})
+
+// ---------------------------------------------------------------- what the red team got past
+
+/** What a press approves is in its key: a button redrawn over other bytes is another button. */
+function allowKey(what = 'allow', digest = 'D'.repeat(64)) {
+  return `proof-${what}:"${digest}"`
+}
+
+test('M4: a root is not reviewed while a claim that could be of it is not', SWEEP, async ($, on) => {
+  const vm = modelOf({ attempts: undefined, roots: [{ attempts: [attemptOf()] }], claims: [claimOf()], reviewed: true, closed: true } as never)
+  const unknown = { ...(vm.tasks[0] as TaskView), claim: claimOf({ id: 'S:8:1', taskId: '8', hasBaseline: false, changes: [] }), isReviewed: false }
+  const drawn = await stage($, on).show(everything({ ...vm, tasks: [...vm.tasks, unknown] }), 80)
+  expect(wordsOf(drawn.tree)).not.toContain('verified · reviewed')
+  await drawn.close()
+})
+
+test('M6: a secret in a path is not drawn', SWEEP, async ($, on) => {
+  const token = ['ghp', 'A'.repeat(30)].join('_')
+  const vm = modelOf({ roots: [{ paused: [`cfg/${token}.sh`] }], more: { reviewWorthy: [`tests/${token}.test.ts`] } } as never)
+  const drawn = await stage($, on).show(everything(vm), 120)
+  expect(wordsOf(drawn.tree)).not.toContain(token)
   await drawn.close()
 })

@@ -33,6 +33,8 @@ const BLOCK_OPENS = /^([ \t]{0,40})[^\n:]{0,80}(?:password|passwd|passphrase|pwd
  */
 const safePipe = () => {
   let lines: string[] = []
+  // Where what is kept begins: taking from the front on every line costs the square of a flood.
+  let first = 0
   let size = 0
   let wasCut = false
   let inKey = false
@@ -40,9 +42,14 @@ const safePipe = () => {
   const add = (line: string) => {
     lines.push(line)
     size += line.length + 1
-    while (size > KEPT && lines.length > 1) {
-      size -= (lines.shift() as string).length + 1
+    while (size > KEPT && lines.length - first > 1) {
+      size -= (lines[first] as string).length + 1
+      first += 1
       wasCut = true
+    }
+    if (first > KEPT) {
+      lines = lines.slice(first)
+      first = 0
     }
   }
   return {
@@ -52,6 +59,7 @@ const safePipe = () => {
         // Its head may be behind the cut, or never have been printed: what came before it goes too.
         if (!inKey) {
           lines = []
+          first = 0
           size = 0
         }
         inKey = false
@@ -73,7 +81,7 @@ const safePipe = () => {
     },
     text() {
       // The first line after a cut may go on from one that is gone.
-      const kept = redact((wasCut ? lines.slice(1) : lines).join('\n'))
+      const kept = redact(lines.slice(wasCut ? first + 1 : first).join('\n'))
       return kept
     },
   }

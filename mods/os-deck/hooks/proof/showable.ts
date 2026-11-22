@@ -15,7 +15,7 @@ const MAX_DRAFT_CHARS = 16_000
 const MAX_DRAFT_LINES = 400
 
 /** Whether redaction would show other words than these, its tidying of control characters aside. */
-const hasSecret = (text: string): boolean => {
+export const hasSecret = (text: string): boolean => {
   const plain = text
     .replace(/\r\n?/g, '\n')
     .replace(/\t/g, ' ')
