@@ -61,11 +61,8 @@ export const liveRuns = (): ReadonlyMap<string, string> => new Map([...live].map
 export const logShown = () => shownLog
 
 function cancelAll() {
-  for (const run of live.values()) {
-    // A resume can come back to the same id, which would take the end of this run as its own.
-    revoked.add(run.id)
-    run.signal.cancel()
-  }
+  // Revoked as well: a resume can come back to the same id, which would take the end of a run as its own.
+  for (const root of live.keys()) revokeRuns(root)
   queued.clear()
   overBefore = lastRead
   tails.clear()
@@ -260,8 +257,12 @@ async function landedAt($: EngineInterface, roots: readonly string[], path: stri
   for (const root of roots) {
     const top = await resolved(root)
     if (!top || real === `${top}/` || !real.startsWith(`${top}/`)) continue
-    // A root is its own path: led elsewhere since the press, it holds no edit. A share's drive alone has two names.
-    if (samePath(top, root) || (top.startsWith('//') && (await resolved(root.slice(0, 3)))?.startsWith('//'))) return `${root}/${real.slice(top.length + 1)}`
+    // Led elsewhere since the press it holds no edit. Its name is its drive's and the rest, as a drive can be a share.
+    if (/^[A-Za-z]:/.test(root)) {
+      const drive = await resolved(`${root.slice(0, 2)}/`)
+      if (!drive || !samePath(top, `${drive}${root.slice(2)}`)) continue
+    }
+    return `${root}/${real.slice(top.length + 1)}`
   }
   return real
 }
@@ -651,7 +652,7 @@ export async function pressAllow($: EngineInterface, ops: ProofOps, root: string
     }
   })
   if (!isAllowed) return
-  for (const of of new Set([root, ...replaced])) revokeRuns(of)
+  for (const gone of new Set([root, ...replaced])) revokeRuns(gone)
   watch($, ops)
   await refreshProof($, ops)
   await noteSaved(ops, await saveChecks($, root, made.grant.checks))

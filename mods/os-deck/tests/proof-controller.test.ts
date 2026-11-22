@@ -1332,3 +1332,32 @@ for (const to of ['C:/elsewhere', '//host.invalid/share/elsewhere'])
     await task('1', 'completed')
     expect(w.p.claims[0]?.outside.length).toBe(1)
   })
+
+test('os-review: on a drive of a share, too, a root led elsewhere holds no edit', async () => {
+  const { w, $, ops, allow, task } = world('C:/repo')
+  await allow()
+  await task('1', 'in_progress')
+  w.links = { 'C:/': '//host.invalid/share', 'C:/repo': '//host.invalid/share/other', 'C:/repo/a.ts': '//host.invalid/share/other/a.ts' }
+  await proof.proofToolRan($, ops, 'C:/repo/a.ts', null)
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  expect(w.p.claims[0]?.outside.length).toBe(1)
+})
+
+test('os-review: what runs under a replaced allowance is cancelled and records nothing', async () => {
+  const old = world('C:/RUNS')
+  await old.allow(false)
+  let release = () => undefined as void
+  old.w.hold = new Promise(done => (release = done))
+  await proof.pressVerify(old.$, old.ops, 'C:/RUNS')
+  await pause(80)
+  expect(old.w.spawned.length).toBe(1)
+  const now = world('C:/runs')
+  now.w.session = old.w.session
+  now.w.p = old.w.p
+  await now.allow(false)
+  release()
+  await pause(200)
+  expect(now.w.p.allowed.map(a => a.grant.root)).toEqual(['C:/runs'])
+  expect(old.w.p.attempts.map(a => a.endedAt)).toEqual([null])
+})
