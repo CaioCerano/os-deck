@@ -44,6 +44,12 @@ export const rootsNow = (p: ProofSession, w: ProofWork, live: LiveRuns): RootVie
       revision: seen?.revision ?? null,
       checkedAt: seen?.at ?? null,
       paused: p.paused.find(x => x.root === root)?.paths ?? [],
+      // Over every claim, not the newest of an id: a later empty one would take the earlier's place.
+      unreviewed: p.claims.filter(c =>
+        c.session === p.session &&
+        (!c.hasBaseline || c.changes.some(change => change.root === root && change.paths.length > 0)) &&
+        !p.reviews.some(r => r.claim === c.id),
+      ).length,
       baseline,
     }
   })

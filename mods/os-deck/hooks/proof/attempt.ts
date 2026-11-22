@@ -58,6 +58,8 @@ export async function runAttempt($: EngineInterface, q: AttemptRequest): Promise
         // Last, and immediately before: an earlier check, or anything else, can rewrite what this one runs.
         changed = changedSince(q.watched, await readWatched($, grant.root, paths), first.stamps)
         if (changed.length > 0) reason = CHANGED
+        // Asked once more: that read takes long enough for a turn to begin in.
+        else if (!(await q.isStillAllowed())) reason = 'no longer allowed'
       }
       if (reason) {
         const at = await $.clock.now()

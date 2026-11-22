@@ -49,6 +49,8 @@ export type RootView = {
   /** When the revision was last read. */
   checkedAt: number | null
   paused: string[]
+  /** Claims of this session, the replaced and withdrawn too, that could be of this root and nobody reviewed. */
+  unreviewed: number
   /** The unaccepted counts of the last test run, where a baseline can be accepted. */
   baseline: { attemptId: string; checkId: string; passed: number; skipped: number } | null
 }

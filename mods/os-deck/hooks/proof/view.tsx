@@ -287,7 +287,7 @@ export const proofSummary = (d: ProofDraw, vm: ProofViewModel): Section => {
       const own = vm.tasks.filter(t =>
         changedRoots(t).includes(root.root) || (!t.claim.withdrawn && (!t.claim.hasBaseline || changedRoots(t).length === 0)),
       )
-      const open = own.filter(t => !t.isReviewed).length
+      const open = Math.max(root.unreviewed, own.filter(t => !t.isReviewed).length)
       const isReviewed = own.length > 0 && open === 0
       const isNarrow = s.width < 50
       const axis = isReviewed ? 'reviewed' : isNarrow ? 'review' : open > 0 ? `${open} to review` : 'review needed'

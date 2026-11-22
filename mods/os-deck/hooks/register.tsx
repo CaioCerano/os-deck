@@ -119,7 +119,7 @@ import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './githu
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
 import { flushHistory, historyReport, inTurn, loadHistory, pruneHistory, recordDay, sessionKeysIn } from './history'
 import { gitRead, readRepoState } from './safe-git'
-import { proofActions, proofCommand, proofSessionEnded, proofSessionStarted, proofTaskTool, proofToolDone, proofTurnEnded, proofTurnStarted } from './proof/controller'
+import { proofActions, proofCommand, proofEditSettled, proofEditStarted, proofSessionEnded, proofSessionStarted, proofTaskTool, proofToolDone, proofTurnEnded, proofTurnStarted } from './proof/controller'
 import { isProofOn, proofDock, unposed } from './proof/dock'
 import type { Section } from './proof/view'
 import { EMPTY_PROOF, EMPTY_WORK, proofOf, workOf } from './proof/state'
@@ -1216,10 +1216,12 @@ export const register: Register = (on, options) => {
         if (petToolKind(m0.tool ?? null) !== petToolKind(e.tool)) await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), tool: e.tool }))
       }
     })
+    proofEditStarted(e.tool_use_id, { tool: String(e.tool), input: e as unknown as Record<string, unknown>, agentId: e.agentId ?? null })
     let ran: Awaited<ReturnType<typeof next>>
     try {
       ran = await next(e)
     } catch (err) {
+      proofEditSettled(e.tool_use_id)
       // Interrupted, with no result to settle by: whatever it asked waits on nobody now.
       await quietly($, 'ask settle', async () => void (await settleAsk($, e.tool_use_id, false)))
       throw err
@@ -1273,6 +1275,7 @@ export const register: Register = (on, options) => {
       const hasFailed = didRun && ran.isError === true
       if (didRun)
         await quietly($, 'proof tool', () => proofToolDone($, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, hasFailed, agentId: e.agentId ?? null }))
+      proofEditSettled(e.tool_use_id)
       const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
       if (didRun && (isEdit || e.tool === 'Bash' || e.tool === 'PowerShell')) void pokeGit($, cfg, false)
       // A push or a gh pr command changes what the GitHub section shows: read it again now.

@@ -115,7 +115,7 @@ test('files changed during the last check do not verify', async () => {
 test('an allowance that ends midway stops the rest', async () => {
   let asked = 0
   const w = world()
-  const { q } = await request({ isStillAllowed: async () => ++asked < 3 })
+  const { q } = await request({ isStillAllowed: async () => ++asked < 4 })
   const got = await runAttempt(w.$, q)
   if (!('attempt' in got)) throw new Error(got.notRun)
   expect(w.spawns()).toBe(1)
@@ -245,4 +245,14 @@ test('N11: an attempt with no content after says why, where it is known', () => 
   const result = { id: 'lint', kind: 'lint' as const, description: '', execution: 'unavailable' as const, source: 'os-deck-run' as const, startedAt: 2, endedAt: 3, revision: 'A', exitCode: null, count: null, summary: '', reason: why }
   const attempt = { id: 'a', session: 'S', root: '/repo', digest: 'D', trigger: 'auto' as const, before: 'A', after: null, head: null, startedAt: 2, endedAt: 3, checks: [result] }
   expect(rootVerdict({ root: '/repo', session: 'S', grant, current: 'B', attempts: [attempt], liveId: null }).reason).toBe(why)
+})
+
+test('an allowance that ends while the watched files are read starts nothing', async () => {
+  let asked = 0
+  const w = world()
+  // At the start, before that read, and after it: only the last says no.
+  const { q } = await request({ isStillAllowed: async () => ++asked < 3 })
+  const got = await runAttempt(w.$, q)
+  if (!('attempt' in got)) throw new Error(got.notRun)
+  expect(w.spawns()).toBe(0)
 })

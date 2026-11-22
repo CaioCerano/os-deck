@@ -95,7 +95,7 @@ const modelOf = (f: Fixture = {}): ProofViewModel => {
     const grant = r.grant === undefined ? grantOf({ root }) : r.grant
     const current = r.current === undefined ? REV : r.current
     const verdict = rootVerdict({ root, session: 'S', grant, current, attempts: r.attempts ?? [], liveId: r.liveId ?? null })
-    return { root, name: r.name ?? 'shop', grant, verdict, revision: current, checkedAt: AT, paused: r.paused ?? [], baseline: r.baseline ?? null }
+    return { root, name: r.name ?? 'shop', grant, verdict, revision: current, checkedAt: AT, paused: r.paused ?? [], unreviewed: 0, baseline: r.baseline ?? null }
   })
   const now = new Map<string, RootNow>(roots.map(r => [r.root, { verdict: r.verdict, hashes: new Map([['src/coupon.ts', f.hash ?? 'h']]) }]))
   const tasks = (f.claims ?? [claimOf()]).map((claim): TaskView => {

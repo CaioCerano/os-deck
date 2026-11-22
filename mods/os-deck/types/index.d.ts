@@ -381,6 +381,8 @@ export type ProofWork = {
     descriptions: [taskId: string, text: string][]
   }
   seen: { root: string; revision: string | null; files: [path: string, hash: string][]; at: number; reason: string | null }[]
+  /** Whose it is: a write that lands in another session's is not made. */
+  session: string
   /** The last main turn ended with an answer, and none has started since. */
   turnEnded: boolean
 }

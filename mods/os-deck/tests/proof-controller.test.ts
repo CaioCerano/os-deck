@@ -788,3 +788,127 @@ test('L2: one root’s attempts do not push out another’s', async () => {
   await pause(120)
   expect(w.p.attempts.length).toBe(1201)
 })
+
+// ---------------------------------------------------------------- what the third attack got past
+
+test('A5: a baseline read before a clear is not the next session’s', async () => {
+  const { w, $, ops, allow, task } = world()
+  await allow(false)
+  let release = () => undefined as void
+  let reading = () => undefined as void
+  const held = new Promise<void>(done => (release = done))
+  const isReading = new Promise<void>(done => (reading = done))
+  const { run } = $.process
+  let armed = true
+  ;($ as unknown as { process: { run: unknown } }).process.run = async (...args: Parameters<typeof run>) => {
+    const got = await run(...args)
+    if (armed && (args[0] as string[]).includes('hash-object')) {
+      armed = false
+      reading()
+      await held
+    }
+    return got
+  }
+  const starting = task('1', 'in_progress')
+  await isReading
+  await proof.proofSessionEnded(ops, 'clear')
+  w.session = `${w.session}-cleared`
+  await proof.proofCommand($, ops, 'setup', true)
+  release()
+  await starting
+  await pause(60)
+  expect(w.work.tracking.open).toEqual([])
+})
+
+for (const [whose, agentId, path] of [['another agent’s', 'agent-other', '/repo/a.ts'], ['an outside', null, '/elsewhere/x.ts']] as const)
+  test(`A6: ${whose} edit still in flight as the task completes is seen`, async () => {
+    const { w, allow, task, endTurn, accept, view } = world()
+    await allow()
+    await task('1', 'in_progress')
+    const id = `edit-${w.session}`
+    proof.proofEditStarted(id, { tool: 'Write', input: { file_path: path }, agentId })
+    w.files['a.ts'] = 'two'
+    await task('1', 'completed')
+    proof.proofEditSettled(id)
+    await endTurn()
+    await accept()
+    expect((await view()).tasks[0]?.verdict.state).toBe('inconclusive')
+  })
+
+test('A7: reviewing an empty claim does not review what its task changed before', async () => {
+  const { w, $, ops, allow, task, work, endTurn, accept, view } = world()
+  await allow()
+  await work()
+  await endTurn()
+  await accept()
+  await task('1', 'in_progress')
+  await task('1', 'completed')
+  const empty = (await view()).tasks[0]!
+  expect(empty.claim.changes).toEqual([])
+  await proof.pressReview($, ops, empty.claim.id, empty.drawn)
+  expect((await view()).roots[0]?.unreviewed).toBe(1)
+  expect(w.p.reviews.length).toBe(1)
+})
+
+test('A8: history gives a review to the claim that was reviewed, not to a later one of its id', async () => {
+  const { w, $, ops, allow, task, work, view } = world()
+  await allow()
+  await work()
+  const first = (await view()).tasks[0]!
+  await proof.pressReview($, ops, first.claim.id, first.drawn)
+  await pause(40)
+  // As another process of the same session would number them: from one again.
+  w.p = { ...w.p, claims: [] }
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'three'
+  await task('1', 'completed')
+  expect(w.p.claims[0]?.id).toBe(first.claim.id)
+  await pause(40)
+  expect((await proof.proofCommand($, ops, 'history', true)).split('· reviewed').length - 1).toBe(1)
+})
+
+test('a run stopped by a turn that began is still owed, though it had started', async () => {
+  const { w, $, ops, allow, work, endTurn } = world()
+  w.files['package.json'] = JSON.stringify({ scripts: { test: 'bun test', typecheck: 'tsc --noEmit' } })
+  await allow()
+  await work()
+  const { spawn } = $.process
+  ;($ as unknown as { process: { spawn: unknown } }).process.spawn = (q: never) => {
+    if (w.spawned.length === 0) w.work = { ...w.work, turnEnded: false }
+    return spawn(q)
+  }
+  await endTurn()
+  expect(w.spawned.length).toBe(1)
+  await endTurn()
+  expect(w.spawned.length).toBe(3)
+})
+
+test('a run the person cancelled is not started again by the next turn', async () => {
+  const { w, $, ops, allow, work, endTurn } = world()
+  await allow()
+  await work()
+  const { run } = $.process
+  let armed = true
+  ;($ as unknown as { process: { run: unknown } }).process.run = async (...args: Parameters<typeof run>) => {
+    if (armed && (args[0] as string[]).includes('hash-object') && proof.liveRuns().size > 0) {
+      armed = false
+      await proof.pressCancel(ROOT)
+      await proof.proofTurnStarted(ops)
+    }
+    return run(...args)
+  }
+  await endTurn()
+  await endTurn()
+  expect(w.spawned).toEqual([])
+})
+
+test('work done while a task was back to pending is not that task’s', async () => {
+  const { w, allow, task } = world()
+  await allow()
+  await task('1', 'in_progress')
+  await task('1', 'pending')
+  w.files['a.ts'] = 'two'
+  await task('1', 'in_progress')
+  await task('1', 'completed')
+  expect(w.p.claims[0]?.changes).toEqual([])
+})

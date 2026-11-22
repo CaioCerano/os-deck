@@ -36,6 +36,8 @@ const tails = new Map<string, string>()
 const queued = new Map<string, object>()
 /** Runs whose allowance ended under them: what they still report is no evidence. */
 const revoked = new Set<string>()
+/** File tools' calls under way: what lands before it returns was done in whatever completed meanwhile. */
+const editing = new Map<string, { path: string; editor: string }>()
 /** The order reads began in, which no clock changes, and the last applied of each session. */
 let lastRead = 0
 /** Reads begun no later than this are of a session that is over. */
@@ -74,7 +76,7 @@ async function currentSession($: EngineInterface, ops: ProofOps): Promise<string
   const id = await $.session.id()
   if ((await ops.proof()).session === id) return id
   cancelAll()
-  await ops.setWork(() => EMPTY_WORK)
+  await ops.setWork(() => ({ ...EMPTY_WORK, session: id }))
   await ops.setProof(p => (p.session === id ? p : { ...EMPTY_PROOF, session: id }))
   return id
 }
@@ -155,7 +157,7 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     if (p.allowed.length === 0) return
     if (x.description !== null) {
       const text = x.description
-      await ops.setWork(w => ({ ...w, tracking: describeTask(w.tracking, x.taskId, text) }))
+      await ops.setWork(w => (w.session === session ? { ...w, tracking: describeTask(w.tracking, x.taskId, text) } : w))
     }
     const was = x.before.tasks.find(t => t.id === x.taskId)
     const is = x.after.tasks.find(t => t.id === x.taskId)
@@ -165,10 +167,12 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
       for (const c of held) for (const root of new Set(c.changes.map(ch => ch.root))) void saveClaim($, root, { ...c, withdrawn: true })
     }
     if (!is || x.created) {
-      await ops.setWork(w => ({ ...w, tracking: dropTask(w.tracking, x.taskId) }))
+      await ops.setWork(w => (w.session === session ? { ...w, tracking: dropTask(w.tracking, x.taskId) } : w))
       return
     }
     if (was?.status === is.status) return
+    // Back to waiting: what is done until it starts again is not its work.
+    if (is.status === 'pending') await ops.setWork(w => (w.session === session ? { ...w, tracking: dropTask(w.tracking, x.taskId) } : w))
     const roots = p.allowed.map(a => a.grant.root)
     if (is.status !== 'in_progress' && is.status !== 'completed') return
 
@@ -178,14 +182,18 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     const unread = reads.filter(r => !r.manifest).map(r => r.root)
     const at = await $.clock.now()
     if (is.status === 'in_progress') {
-      await ops.setWork(w => ({ ...w, tracking: startTask(w.tracking, { taskId: x.taskId, at, start: manifests, unread }) }))
+      await ops.setWork(w => (w.session === session ? { ...w, tracking: startTask(w.tracking, { taskId: x.taskId, at, start: manifests, unread }) } : w))
       return
+    }
+    for (const { path, editor } of [...editing.values()]) {
+      const landed = await landedAt($, roots, isLocalPath(path) ? path : `${await $.session.cwd()}/${path}`)
+      await ops.setWork(w => (w.session === session ? { ...w, tracking: noteEdit(w.tracking, landed, editor) } : w))
     }
     const claims = (await ops.proof()).claims
     const { tracking } = await ops.work()
     const done = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, group: is.group, agentId: x.agentId, helpers: is.agents, at, end: manifests, unread, roots, claims })
     if (await stillThere($, done.claim)) done.claim = { ...done.claim, hasBaseline: false }
-    await ops.setWork(w => ({ ...w, tracking: done.tracking }))
+    await ops.setWork(w => (w.session === session ? { ...w, tracking: done.tracking } : w))
     // The new completion replaces what an earlier one claimed.
     await ops.setProof(s => (s.session === session ? { ...s, claims: [...withdrawClaims(s.claims, session, x.taskId), done.claim].slice(-MAX_CLAIMS) } : s))
     const changed = new Set(done.claim.changes.map(c => c.root))
@@ -210,8 +218,14 @@ async function stillThere($: EngineInterface, claim: ProofClaim): Promise<boolea
 /** Where an edit landed, links followed, spelled from the allowed root it landed in. */
 async function landedAt($: EngineInterface, roots: readonly string[], path: string): Promise<string> {
   const resolved = async (of: string) => (await $.fs.stat(of, { resolve: true }).catch(() => null))?.realPath?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null
-  const real = await resolved(path)
-  if (!real) return path
+  let real = await resolved(path)
+  if (!real) {
+    // Not there yet: where its folder leads is where it will land.
+    const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+    const folder = cut > 0 ? await resolved(path.slice(0, cut)) : null
+    if (!folder) return path
+    real = `${folder}/${path.slice(cut + 1)}`
+  }
   for (const root of roots) {
     const top = await resolved(root)
     if (top && real.length > top.length + 1 && real[top.length] === '/' && samePath(real.slice(0, top.length), top)) return `${root}/${real.slice(top.length + 1)}`
@@ -221,14 +235,15 @@ async function landedAt($: EngineInterface, roots: readonly string[], path: stri
 
 /** A file tool's path, or any shell call: what can have changed the content. */
 export async function proofToolRan($: EngineInterface, ops: ProofOps, editedPath: string | null, agentId: string | null = null): Promise<void> {
-  if ((await ops.proof()).allowed.length === 0) return
+  const { allowed, session } = await ops.proof()
+  if (allowed.length === 0) return
   if (editedPath) {
     const editor = agentId ?? ''
     void inOrder(async () => {
       if ((await ops.work()).tracking.open.length === 0) return
       const named = isLocalPath(editedPath) ? editedPath : `${await $.session.cwd()}/${editedPath}`
       const path = await landedAt($, (await ops.proof()).allowed.map(a => a.grant.root), named)
-      await ops.setWork(w => ({ ...w, tracking: noteEdit(w.tracking, path, editor) }))
+      await ops.setWork(w => (w.session === session ? { ...w, tracking: noteEdit(w.tracking, path, editor) } : w))
     }).catch(() => undefined)
   }
   refreshSoon($, ops)
@@ -246,6 +261,18 @@ export async function proofTaskTool(
   if (typeof id !== 'string') return
   const description = typeof x.input.description === 'string' ? x.input.description : null
   await proofTaskChanged($, ops, { before: x.before, after: x.after, taskId: id, agentId: x.agentId, description, created })
+}
+
+/** A tool's call as it begins. No state, no wait. */
+export function proofEditStarted(id: string, x: { tool: string; input: Record<string, unknown>; agentId: string | null }): void {
+  if (!EDIT_TOOLS.has(x.tool)) return
+  const path = x.input.file_path ?? x.input.notebook_path
+  if (typeof path === 'string') editing.set(id, { path, editor: x.agentId ?? '' })
+}
+
+/** That call over, and whatever it did noted. */
+export function proofEditSettled(id: string): void {
+  editing.delete(id)
 }
 
 /** Any other tool's call, done: whether it can have changed the content, and the file it named. */
@@ -273,6 +300,7 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
   const id = `${startedAt.toString(36)}-${++lastId}`
   const signal = cancelSignal()
   live.set(root, { id, signal })
+  let stoppedForTurn = false
   // Its output is this run's, or none.
   for (const key of [...tails.keys()]) if (key.endsWith(`\n${root}`)) tails.delete(key)
   const record = (attempt: ProofAttempt) =>
@@ -299,12 +327,17 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
         const now = p.allowed.find(a => a.grant.root === root)?.grant
         if (revoked.has(id) || p.session !== session || (await $.session.id()) !== session || now?.digest !== grant.digest || now.at !== grant.at) return false
         // Before each spawn: an automatic one is of a turn that is over, under an allowance still automatic.
-        return trigger === 'manual' || (now.auto && (await ops.work()).turnEnded)
+        if (trigger === 'manual') return true
+        if (!now.auto) return false
+        if ((await ops.work()).turnEnded) return true
+        stoppedForTurn = true
+        return false
       },
       onProgress: record,
     })
-    if (trigger === 'auto' && !(await ops.work()).turnEnded && (!('attempt' in got) || got.tails.length === 0)) {
-      // The turn began before anything started: that was no attempt, and the run is still owed.
+    const hasFailed = 'attempt' in got && got.attempt.checks.some(r => r.execution === 'exited' && (r.exitCode !== 0 || (r.count?.failed ?? 0) > 0))
+    if (stoppedForTurn && !signal.cancelled && !hasFailed) {
+      // A turn began: what it stopped was no attempt, and the run is still owed.
       await ops.setProof(p => ({ ...p, attempts: p.attempts.filter(a => a.id !== id) }))
     } else if ('attempt' in got) {
       for (const [check, text] of got.tails) tails.set(`${check}\n${root}`, text)
@@ -460,11 +493,13 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
     if (!root) return 'OS-Deck proof: no repository here.'
     const { attempts, claims, reviews } = await loadRecords($, root)
     const when = (at: number) => new Date(at).toLocaleString()
-    const reviewed = new Set(reviews.map(r => r.claim))
+    // Ids are numbered again by another process: a review is of the last claim of its id before it.
+    const reviewed = (claim: ProofClaim) =>
+      reviews.some(r => r.claim === claim.id && r.at >= claim.at && !claims.some(later => later.id === claim.id && later.at > claim.at && later.at <= r.at))
     const lines = [
       ...attempts.slice(-10).reverse().map(a => `${when(a.startedAt)}  ${pastLabel(a)}  ${a.checks.map(c => c.id).join(', ')}`),
       ...claims.slice(-10).reverse().map(c => {
-        const since = c.withdrawn ? ' · withdrawn' : reviewed.has(c.id) ? ' · reviewed' : ''
+        const since = c.withdrawn ? ' · withdrawn' : reviewed(c) ? ' · reviewed' : ''
         return `${when(c.at)}  claimed "${withoutMarks(c.subject)}"${since}`
       }),
     ]

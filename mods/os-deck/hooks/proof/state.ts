@@ -11,7 +11,7 @@ export type ProofOps = {
 }
 
 export const EMPTY_PROOF: ProofSession = { session: '', allowed: [], claims: [], attempts: [], reviews: [], past: [], paused: [], openClaim: null, draft: null, notSaved: false }
-export const EMPTY_WORK: ProofWork = { tracking: { open: [], descriptions: [] }, seen: [], turnEnded: false }
+export const EMPTY_WORK: ProofWork = { session: '', tracking: { open: [], descriptions: [] }, seen: [], turnEnded: false }
 
 const isList = (v: unknown, each: (x: Record<string, unknown>) => boolean) => Array.isArray(v) && v.every(x => isObject(x) && each(x))
 
@@ -29,7 +29,7 @@ export const proofOf = (stored: unknown): ProofSession => {
 }
 
 export const workOf = (stored: unknown): ProofWork => {
-  if (!isObject(stored) || !isObject(stored.tracking)) return EMPTY_WORK
+  if (!isObject(stored) || typeof stored.session !== 'string' || !isObject(stored.tracking)) return EMPTY_WORK
   const ok = isList(stored.tracking.open, o => Array.isArray(o.start) && Array.isArray(o.editors)) && Array.isArray(stored.tracking.descriptions) && isList(stored.seen, s => Array.isArray(s.files))
   return ok ? (stored as unknown as ProofWork) : EMPTY_WORK
 }
