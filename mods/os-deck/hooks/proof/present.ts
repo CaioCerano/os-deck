@@ -4,6 +4,7 @@ import type { ProofAttempt, ProofSession, ProofWork } from '../../types'
 import { outcomeOf } from './checks'
 import { reviewWorthy } from './lifecycle'
 import type { ProofViewModel, RootView } from './model'
+import { slashed } from './names'
 import { isReviewed, rootVerdict, taskVerdict } from './verdict'
 import type { RootNow } from './verdict'
 
@@ -37,7 +38,7 @@ export const rootsNow = (p: ProofSession, w: ProofWork, live: LiveRuns): RootVie
     }
     return {
       root,
-      name: root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? root,
+      name: slashed(root).replace(/\/+$/, '').split('/').pop() ?? root,
       grant,
       // An unreadable root says which kind of unreadable.
       verdict: verdict.state === 'inconclusive' && seen && !seen.revision && seen.reason ? { ...verdict, reason: `${verdict.reason}: ${seen.reason}` } : verdict,

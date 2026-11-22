@@ -1252,3 +1252,25 @@ for (const when of ['returned', 'in flight'] as const)
       proof.proofEditSettled(id)
       expect(w.p.claims[0]?.outside).toEqual([beside])
     })
+
+// ---------------------------------------------------------------- what the ninth attack got past
+
+test('C1: on a drive that resolves to a share an inside edit is still inside', async () => {
+  const { w, $, ops, allow, task } = world('C:/repo')
+  await allow()
+  await task('1', 'in_progress')
+  // A string in stat's answer alone: nothing is asked of a share.
+  const share = '\\\\host.invalid\\share\\repo'
+  w.links['C:/repo'] = share
+  w.links['C:/repo/a.ts'] = `${share}\\a.ts`
+  await proof.proofToolRan($, ops, 'C:/repo/a.ts', null)
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  expect(w.p.claims[0]?.outside).toEqual([])
+})
+
+test('C2: off Windows a root with a backslash in its name keeps its whole name', async () => {
+  const { allow, view } = world('/a\\repo')
+  await allow()
+  expect((await view()).roots[0]?.name).toBe('a\\repo')
+})

@@ -236,7 +236,8 @@ async function placeEdit($: EngineInterface, roots: readonly string[], named: st
 async function landedAt($: EngineInterface, roots: readonly string[], path: string): Promise<string> {
   const resolved = async (of: string) => {
     const real = (await $.fs.stat(of, { resolve: true }).catch(() => null))?.realPath
-    return real ? slashed(real).replace(/\/+$/, '') : null
+    // By the system it was asked on: a drive can resolve to a share, which names none.
+    return real ? slashed(real, of).replace(/\/+$/, '') : null
   }
   let real = await resolved(path)
   if (!real) {

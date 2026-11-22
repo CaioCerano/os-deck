@@ -59,11 +59,11 @@ export const pathFrom = (root: string, dir: string, value: string): { path: stri
 /** Ends a path that means a program's name with whatever extension, which is what a shell takes. */
 export const ANY_EXT = '.*'
 
-/** A path of a folder above the root is written `<folder>|<steps below it>`: no plain path has that mark. */
+/** A path of a folder above the root is written `<folder>|<steps below it>`. Off Windows a folder's name can hold that mark, the steps never: the last is the one meant. */
 export const aboveRoot = (folder: string, rest: string) => `${/^[A-Za-z]:$|^$/.test(folder) ? `${folder}/` : folder}|${rest}`
-const isAbove = (path: string) => /^(?:\/(?!\/)|[A-Za-z]:\/)[^|]*\|/.test(path)
+const isAbove = (path: string) => /^(?:\/(?!\/)|[A-Za-z]:\/)[\s\S]*\|/.test(path)
 const belowFolder = (path: string) => {
-  const cut = path.indexOf('|')
+  const cut = path.lastIndexOf('|')
   return { folder: path.slice(0, cut), rest: path.slice(cut + 1) }
 }
 /** Where the disk is asked: such a folder by itself, anything else from the root. */

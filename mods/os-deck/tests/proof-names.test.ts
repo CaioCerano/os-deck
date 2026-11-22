@@ -149,3 +149,16 @@ test('V1: off Windows a backslash is a letter of a name, never a separator', asy
   expect(d.problem).toBe(null)
   expect(d.watched.map(([path]) => path).filter(path => path.startsWith('/work/a|'))).toEqual([])
 })
+
+test('W1: a bar in the name of a folder above does not hide what is in it', async () => {
+  for (const top of ['/w|x/repo', '/home/|x/repo', '/w|x|y/repo']) {
+    const above = top.slice(0, top.lastIndexOf('/'))
+    const files = { [`${top}/package.json`]: pkg('tsc --noEmit') }
+    const d = await draftFor(disk(files), top, [check()], 'detected')
+    expect([top, d.problem]).toEqual([top, null])
+    for (const planted of ['node_modules/.bin/tsc', 'node_modules/.bin/node', 'package.json'])
+      expect([top, planted, (await changedOnDisk(disk({ ...files, [`${above}/${planted}`]: '{}' }), top, d.watched)).length]).toEqual([top, planted, 1])
+    const under = await draftFor(disk({ ...files, [`${above}/package.json`]: '{"workspaces":["repo"]}' }), top, [check()], 'detected')
+    expect([top, under.problem !== null]).toEqual([top, true])
+  }
+})
