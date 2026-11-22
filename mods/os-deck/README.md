@@ -82,7 +82,7 @@ The dock opens beside the conversation in a full-screen terminal from 110 column
 | `/os-deck proof` | Says what Agent Proof allows and has seen this session |
 | `/os-deck proof setup [folder]` | Shows the checks found, to allow in the dock |
 | `/os-deck proof check <test\|typecheck\|lint\|build> [--dir <folder>] -- <command>` | Drafts a check you name |
-| `/os-deck proof history` | Lists the saved runs |
+| `/os-deck proof history` | Lists the saved runs, claims and reviews, which are never evidence |
 | `/os-deck sections` | Lists the sections and which are hidden |
 | `/os-deck layout <auto\|compact\|wide\|mini>` | Changes the layout |
 | `/os-deck epic` | Reads the anchored issue's epic from Jira |

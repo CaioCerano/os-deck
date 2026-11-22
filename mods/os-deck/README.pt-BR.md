@@ -82,7 +82,7 @@ O painel abre ao lado da conversa no terminal em tela cheia a partir de 110 colu
 | `/os-deck proof` | Diz o que o Agent Proof liberou e viu nesta sessão |
 | `/os-deck proof setup [pasta]` | Mostra os checks encontrados, para liberar no dock |
 | `/os-deck proof check <test\|typecheck\|lint\|build> [--dir <pasta>] -- <comando>` | Rascunha um check que você indica |
-| `/os-deck proof history` | Lista as execuções salvas |
+| `/os-deck proof history` | Lista as execuções, alegações e revisões salvas, que nunca são evidência |
 | `/os-deck sections` | Lista as seções e quais estão ocultas |
 | `/os-deck layout <auto\|compact\|wide\|mini>` | Troca o layout |
 | `/os-deck epic` | Lê do Jira o épico da issue ancorada |
