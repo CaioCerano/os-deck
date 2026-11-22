@@ -1,6 +1,6 @@
 # Agent Proof: technical proposal
 
-Status: **revision 2, after an independent architecture review, awaiting approval. No feature code exists.**
+Status: **approved on 2026-11-22, with one change: automatic by default.** Revision 2, after an independent architecture review.
 Based on os-deck 0.4.3 (`5008096`), Claude Code 2.1.330, Windows 11.
 
 Evidence labels: **[measured]** run for this proposal; **[read]** from code or the engine's type contract; **[assumed]** not yet tested.
@@ -15,7 +15,7 @@ Evidence labels: **[measured]** run for this proposal; **[read]** from code or t
 | A2 | The opened folder is the project | 38% of 361 project file edits were outside the folder the session opened [measured] | The person approves repository roots explicitly |
 | A3 | Checks verify tasks | Checks see a whole tree. Tying them to a task alone gives false greens: reverted work, another task's work | **The verdict belongs to (root, revision).** A task borrows it only under section 4's conditions |
 | A4 | Exit 0 is a pass | `node --test` with zero tests exits 0; `script \|\| true` exits 0 with failures [measured] | Exit 0, zero failed, at least the accepted number passed, no more than the accepted number skipped |
-| A5 | A trusted command is safe | The agent can edit what it runs, and it runs outside permission prompts and the sandbox [read] | Manual by default; automatic is a separate opt-in |
+| A5 | A trusted command is safe | The agent can edit what it runs, and it runs outside permission prompts and the sandbox [read] | Nothing runs before a press each session. That press allows automatic runs (the approved default); "manual only" is beside it |
 | A6 | Saved approval can be trusted | The plugin store is a user-writable JSON file [read, permission bit checked] | Saved definitions are suggestions. Permission lives in session state and is bound to the session id |
 | A7 | History is an audit trail | Same file, same writer | History, not tamper-evident. It never makes anything green |
 | A8 | "Verified" stands alone | It reads as "correct" | Two axes: `checks verified`, and `review needed / reviewed` |
@@ -220,7 +220,7 @@ Setup:
 
 1. `/os-deck proof setup` reads known manifests and lists candidates, running nothing. `/os-deck proof check <kind> -- <argv>` drafts any other.
 2. The screen shows the root, each exact argv (escaped, untruncated), and the body of any package script with its pre and post hooks. An argv that redaction would alter is refused.
-3. `allow manual` or `allow automatic` grants for this session.
+3. `allow` grants for this session with automatic runs, and says so beside the button; `manual only` grants without them.
 4. The first test run shows its counts and stays Inconclusive until `accept as baseline` is pressed.
 5. The next session shows the saved definition and asks for one press.
 
@@ -232,7 +232,7 @@ Setup:
 | Test, typecheck, lint, build | Screenshots and browser tests: artifact references | Commands from task text |
 | Two count parsers | Person-written acceptance criteria on the review axis | Blocking completion |
 | Root line, task detail, short timeline | Custom check kinds, more parsers | Tamper-evident audit |
-| Manual and opt-in automatic | Isolated worktree runs, "was already failing" baseline | |
+| Automatic by default once allowed, and manual | Isolated worktree runs, "was already failing" baseline | |
 | Persistent history | Agent's own test runs, shown as non-evidence | |
 
 ## 8. Security and reliability
@@ -279,8 +279,10 @@ All on `feat/agent-proof`. Nothing is pushed before the final review.
 | Lifecycle tested | All exit criteria |
 | Workflows unchanged | Nothing before setup, M4 |
 
-## Decisions
+## Decisions (taken)
 
-1. Automatic runs: opt-in per root and session (recommended), or on at approval.
-2. Approval: one press per session (recommended), or persistent and forgeable.
-3. Label: "checks verified" plus review (recommended), or a single "Verified".
+1. Automatic runs: **on when a root is allowed**; "manual only" is the other choice. A changed check script still pauses them until pressed.
+2. Approval: one press per session.
+3. Label: "checks verified" plus review.
+
+Consequence of 1: after that press, code the agent writes into tests runs at the end of a turn without a permission prompt. The setup screen says this.

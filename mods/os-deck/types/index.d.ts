@@ -246,6 +246,85 @@ export type JiraChild = JiraRef & { assignee: string }
 /** An epic's children, read by a `parent = KEY` search; `at` is when they were read. */
 export type JiraEpic = { key: string; children: JiraChild[]; at: number }
 
+// ---------------------------------------------------------------- Agent Proof
+
+export type ProofKind = 'test' | 'typecheck' | 'lint' | 'build'
+
+/** How a test run's counts are read, and what the person accepted. `minPassed` is null until they accept a baseline. */
+export type ProofCountRule = { parser: 'bun' | 'pass-fail-lines'; minPassed: number | null; maxSkipped: number }
+
+export type ProofCheck = {
+  id: string
+  kind: ProofKind
+  description: string
+  argv: string[]
+  /** A folder inside the root; empty for the root itself. */
+  dir: string
+  timeoutS: number
+  required: boolean
+  count?: ProofCountRule
+}
+
+/** What may execute, in this session alone. Never stored. */
+export type ProofGrant = { session: string; root: string; checks: ProofCheck[]; digest: string; auto: boolean; at: number }
+
+export type ProofExecution = 'queued' | 'running' | 'exited' | 'timed-out' | 'cancelled' | 'interrupted' | 'unavailable'
+export type ProofCount = { passed: number; failed: number; skipped: number }
+
+/** What was observed. Whether it passed is always worked out from this, never kept beside it. */
+export type ProofResult = {
+  id: string
+  kind: ProofKind
+  description: string
+  execution: ProofExecution
+  source: 'os-deck-run'
+  startedAt: number
+  endedAt: number | null
+  revision: string
+  exitCode: number | null
+  count: ProofCount | null
+  summary: string
+  reason: string | null
+}
+
+export type ProofAttempt = {
+  id: string
+  session: string
+  root: string
+  digest: string
+  trigger: 'auto' | 'manual'
+  before: string
+  after: string | null
+  /** A label only: the revision is the content's. */
+  head: string | null
+  startedAt: number
+  endedAt: number | null
+  checks: ProofResult[]
+}
+
+/** A root a claimed task changed: each path with its hash at completion, null once deleted. */
+export type ProofChange = { root: string; paths: { path: string; hash: string | null }[]; overlap: string[] }
+
+/** One completion of one task: the agent's claim, and what was seen to change meanwhile. */
+export type ProofClaim = {
+  id: string
+  session: string
+  taskId: string
+  subject: string
+  description: string
+  agentId: string | null
+  at: number
+  /** False where the task's start was not seen, so what it changed is not known. */
+  hasBaseline: boolean
+  changes: ProofChange[]
+  /** Edit paths outside every approved root. */
+  outside: string[]
+  withdrawn: boolean
+}
+
+/** A person's press, bound to the revisions that were drawn. */
+export type ProofReview = { claim: string; revisions: { root: string; revision: string }[]; at: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'os-deck': {
