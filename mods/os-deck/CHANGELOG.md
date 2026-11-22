@@ -2,6 +2,11 @@
 
 **English** · [Português](CHANGELOG.pt-BR.md)
 
+## os-deck 0.5.1
+
+- **Fixed a false Verified in 0.5.0.** In a Windows folder with case sensitivity on, an edit to a folder one case apart from an allowed repository (`Repo` beside `repo`) counted as inside it. Such an edit is now outside, and the task reads Inconclusive.
+- **A path in other capitals is never taken for the same file** when checks are read, not only for the file run and `package.json`.
+
 ## os-deck 0.5.0
 
 **Agent Proof: evidence-based verification of the tasks agents say are done.**

@@ -259,7 +259,7 @@ async function landedAt($: EngineInterface, roots: readonly string[], path: stri
   }
   for (const root of roots) {
     const top = await resolved(root)
-    if (top && real.length > top.length + 1 && real[top.length] === '/' && samePath(real.slice(0, top.length), top)) return `${root}/${real.slice(top.length + 1)}`
+    if (top && real.length > top.length + 1 && real[top.length] === '/' && real.slice(0, top.length) === top) return `${root}/${real.slice(top.length + 1)}`
   }
   return real
 }

@@ -125,8 +125,8 @@ export function openDisk($: EngineInterface, root: string): Disk {
       if (found.length > 1) return problem('two names differ only in case')
       const entry = found[0]
       if (!entry) return { kind: 'absent' }
-      // Watched all the same, as it can be the file loaded; off Windows it can as well be another.
-      if (!onWindows && entry.name !== steps[i]) return problem('it is there in another case')
+      // Never taken for it: a folder of Windows can be case-sensitive, and there it is another file.
+      if (entry.name !== steps[i]) return problem('it is there in another case')
       if (entry.isLink) return problem('it is a link')
       // The top folder is written with its slash.
       const here = at.endsWith('/') ? `${at}${entry.name}` : joined(at, entry.name)
@@ -209,7 +209,7 @@ export function openDisk($: EngineInterface, root: string): Disk {
       return 'entry' in found && found.entry.kind === 'dir' ? entriesOf(found.at) : null
     },
     file(path) {
-      const key = keyOf(path)
+      const key = path
       const known = files.get(key)
       if (known) return known
       const read = readFile(path)

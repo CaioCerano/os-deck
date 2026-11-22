@@ -79,9 +79,9 @@ test('absence is null, at any depth', async () => {
   expect(got.problems).toEqual([])
 })
 
-test('a name matches in any case on a disk of Windows', async () => {
+test('Y1: on Windows another case is refused, as it can be another file', async () => {
   const got = await readOne({ 'Local/Lint.JS': 'x' }, 'local/lint.js', { root: 'C:/repo' })
-  expect(got.watched).toEqual([['local/lint.js', await sha(bytesOf('x'))]])
+  expect(got.problems).toEqual([['local/lint.js', 'it is there in another case']])
 })
 
 test('what cannot be known is a problem, and no hash', async () => {

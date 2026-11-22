@@ -597,11 +597,11 @@ const afterEdit = (roots: string[], path: string) => {
   return completeTask(t, { session: 'S', taskId: 'A', subject: '', agentId: null, helpers: [], at: 2, end: start, unread: [], roots, claims: [] }).claim.outside
 }
 
-test('paths inside an allowed root, however Windows spells them', () => {
+test('paths inside an allowed root, whatever the slash and the letter of the drive', () => {
   const inside: [string[], string][] = [
-    [[APP], 'C:/work/app/a.ts'], [[APP], 'C:\\work\\app\\src\\a.ts'], [[APP], 'c:/WORK/App/a.ts'], [[APP], 'C:/work//app/./a.ts'],
+    [[APP], 'C:/work/app/a.ts'], [[APP], 'C:\\work\\app\\src\\a.ts'], [[APP], 'c:/work/app/a.ts'], [[APP], 'C:/work//app/./a.ts'],
     [[APP], 'C:/work/app/src/../a.ts'], [[APP], 'C:/work/lib/../app/a.ts'], [[APP], 'C:/work/app'], [[APP], 'C:/work/app/..config/x'],
-    [['c:\\Work\\App\\'], 'C:/work/app/a.ts'], [['C:/'], 'C:/any/a.ts'],
+    [['c:\\work\\app\\'], 'C:/work/app/a.ts'], [['C:/'], 'C:/any/a.ts'],
     [[APP, INNER], 'C:/work/app/inner/a.ts'], [[INNER, APP], 'C:/work/app/a.ts'], [[APP], 'C:/work/app/inner/a.ts'],
     [['/srv/app'], '/srv/app/a.ts'], [['/'], '/srv/a.ts'],
   ]
@@ -615,6 +615,8 @@ test('paths outside every allowed root, or not certain to be inside', () => {
     [[INNER], 'C:/work/app/a.ts'], [[INNER], 'C:/work/app/inner2/a.ts'], [[APP], 'src/a.ts'], [[APP], '../a.ts'], [[APP], 'C:a.ts'], [[APP], ''],
     [[APP], '//server/share/work/app/a.ts'], [[APP], '\\\\server\\work\\app\\a.ts'], [[APP], '/c/work/app/a.ts'],
     [[APP], 'C:/work/app/.. /x.ts'], [[APP], 'C:/work/app/a.ts:stream'], [[APP], 'C:/work/app./a.ts'],
+    // A case-sensitive folder of Windows holds each of these beside the root.
+    [[APP], 'c:/WORK/App/a.ts'], [[APP], 'C:/work/App/a.ts'], [['C:/Work/App'], 'C:/work/app/a.ts'],
     [['C:/kit'], `C:/${String.fromCharCode(0x212a)}it/a.ts`],
     [['/srv/app'], '/srv/App/a.ts'], [['/srv/app'], '/srv/app/../x'], [['/srv/app'], '/srv/app\\a.ts'], [['/srv/app'], '/srv/app2/a.ts'],
   ]
@@ -992,8 +994,8 @@ const randomFrom = (seed: number) => () => {
 
 /** An edit's path, and the roots it is inside: known by writing it, not by comparing. */
 const SPELLINGS: [string, string[]][] = [
-  ['C:/work/app/a.ts', [APP]], ['c:\\WORK\\App\\src\\b.ts', [APP]], ['C:/work/lib/../app/c.ts', [APP]],
-  ['C:/work/lib/a.ts', [LIB]], ['C:/work/app/../lib/b.ts', [LIB]], ['C:/Work/App/Inner/a.ts', [APP, INNER]],
+  ['C:/work/app/a.ts', [APP]], ['c:\\work\\app\\src\\b.ts', [APP]], ['C:/work/App/a.ts', []], ['C:/work/lib/../app/c.ts', [APP]],
+  ['C:/work/lib/a.ts', [LIB]], ['C:/work/app/../lib/b.ts', [LIB]], ['C:/work/app/inner/a.ts', [APP, INNER]], ['C:/work/app/Inner/a.ts', [APP]],
   ['C:/work/app2/a.ts', []], ['C:/work/app/../x.ts', []], ['D:/work/app/a.ts', []], ['notes.md', []],
 ]
 

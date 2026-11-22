@@ -4,7 +4,7 @@
 import type { ProofAttempt, ProofChange, ProofClaim } from '../../types'
 import { redact } from '../redact'
 import type { Lifecycle, OpenTask } from './model'
-import { foldCase, slashed } from './names'
+import { slashed } from './names'
 import { changedPaths, isLocalPath, samePath } from './revision'
 
 const MAX_OPEN = 64
@@ -34,12 +34,12 @@ const UNKEPT = 'edits that could not all be kept'
 
 /**
  * One spelling for an absolute path, ending in a slash; null where what it names is not certain. Only
- * ASCII case is folded: Unicode's folding makes one name of some that Windows keeps apart.
+ * a drive's letter is folded: a folder of Windows can be case-sensitive, and an edit arrives as the disk spells it.
  */
 const spellPath = (path: string): string | null => {
   if (!isLocalPath(path)) return null
   const onWindows = /^[A-Za-z]:/.test(path)
-  const text = onWindows ? foldCase(slashed(path)) : path
+  const text = onWindows ? slashed(path).replace(/^./, drive => drive.toLowerCase()) : path
   const [top, ...parts] = text.split('/')
   const kept: string[] = []
   for (const part of parts) {

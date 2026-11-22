@@ -87,7 +87,7 @@ const world = (ROOT = '/repo') => {
       stat: async (path: string) => {
         if (w.dangling.includes(path)) return { kind: 'other', size: 0, mtimeMs: 0, isLink: true }
         if (w.missing.includes(path)) throw new Error('ENOENT')
-        return { kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: w.links[path] ?? path }
+        return { kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: w.links[path] ?? (path.toLowerCase().startsWith(`${ROOT.toLowerCase()}/`) || path.toLowerCase() === ROOT.toLowerCase() ? ROOT + path.slice(ROOT.length) : path) }
       },
     },
     process: {
@@ -1274,3 +1274,18 @@ test('C2: off Windows a root with a backslash in its name keeps its whole name',
   await allow()
   expect((await view()).roots[0]?.name).toBe('a\\repo')
 })
+
+for (const isMade of [true, false])
+  test(`Y2: a folder one case from an allowed root is outside it, ${isMade ? 'made' : 'not made yet'}`, async () => {
+    const { w, $, ops, allow, task } = world('C:/repo')
+    await allow()
+    await task('1', 'in_progress')
+    // A case-sensitive folder of Windows holds both.
+    const file = 'C:/Repo/x.ts'
+    w.links = { 'C:/Repo': 'C:/Repo', [file]: file }
+    if (!isMade) w.missing = [file]
+    await proof.proofToolRan($, ops, file, null)
+    w.files['a.ts'] = 'two'
+    await task('1', 'completed')
+    expect(w.p.claims[0]?.outside.length).toBe(1)
+  })

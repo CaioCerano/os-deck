@@ -2,7 +2,7 @@
 
 [English](README.md) · **Português**
 
-**708 testes automatizados** (681 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
+**710 testes automatizados** (683 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
 
 ![O mascote do os-deck mudando de estado: pensando, lendo, editando, rodando um comando, subagentes, esperando seu ok, falhando, compactando, pronto, parado e dormindo](docs/media/mascot-states.gif)
 
@@ -24,7 +24,7 @@ O os-deck saiu do [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.
 | **[Previsões](#alertas-e-previsões)** | Turnos até o contexto encher, tempo restante do plano |
 | **Histórico** | Turnos, tempo, tarefas, subagentes, custo e espera por dia, entre sessões (`/os-deck today`, `/os-deck history`) |
 | **Plano, git e Jira** | Tarefas em árvore por fase com seus subagentes, o estado de cada repositório, o épico do Jira |
-| **Testes** | 681 testes novos, além de 27 mantidos dos 28 do Flightdeck |
+| **Testes** | 683 testes novos, além de 27 mantidos dos 28 do Flightdeck |
 
 ## Autor
 
@@ -147,7 +147,7 @@ O que saber antes de apertar allow:
 - Depois de 1.000 alegações numa sessão, os checks param de rodar sozinhos: aperte verify.
 - Um repositório que não dá para ler com certeza (links, submódulos, repositórios aninhados, conflitos, mais de 20.000 arquivos) nunca é verificado.
 - Com um repositório liberado, o início e a conclusão de uma tarefa esperam até 1,5 segundo enquanto o conteúdo é lido.
-- Um arquivo que um check roda, e o `package.json` que o npm lê, precisam estar escritos com as maiúsculas exatas do disco, ou o setup recusa.
+- Todo caminho que um check cita ou lê precisa ter as maiúsculas exatas do disco, ou o setup recusa: uma pasta do Windows pode diferenciar maiúsculas.
 - **Só no Windows**, e testado só no Windows 11. Fora dele o `/os-deck proof` recusa e nada pode ser liberado; o resto do os-deck não muda.
 
 O desenho e o modelo de ameaças estão na [proposta](docs/proposals/agent-proof.md) (em inglês).
@@ -248,7 +248,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Versão do Claude Code validada
 
-2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.5.0 passou nos seus 708 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
+2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.5.1 passou nos seus 710 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
 
 ## Licença
 
