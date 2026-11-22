@@ -19,6 +19,14 @@ export function gitRead($: EngineInterface, dir: string, args: readonly string[]
   return $.process.run([...GIT, '-C', dir, ...args], { timeoutMs: 8000, env: NO_FETCH })
 }
 
+/**
+ * The one read of contents, for Agent Proof in a root the person allowed: the raw bytes hashed, with no
+ * filter of any scope. `--no-filters` is all that keeps it from running code: never drop it.
+ */
+export function gitHashRaw($: EngineInterface, dir: string, paths: readonly string[]) {
+  return $.process.run([...GIT, '-C', dir, 'hash-object', '--no-filters', '--stdin-paths'], { timeoutMs: 30_000, env: NO_FETCH, stdin: `${paths.join('\n')}\n` })
+}
+
 const namesIn = (stdout: string) => stdout.split('\0').filter(Boolean)
 
 /** Branch, upstream distance, staged, untracked and conflicts, from refs, the index and directory listings. */
