@@ -11,7 +11,7 @@ import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
 import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, waitTask, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofActions, ProofViewModel } from './model'
-import { foldCase } from './names'
+import { placedPath } from './names'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
 import { cancelSignal } from './runner'
@@ -220,9 +220,15 @@ async function stillThere($: EngineInterface, claim: ProofClaim): Promise<boolea
 /** The file tools' calls under way, noted on the tasks open now. */
 async function noteEditing($: EngineInterface, ops: ProofOps, session: string, roots: readonly string[]): Promise<void> {
   for (const { path, editor } of [...editing.values()]) {
-    const landed = await landedAt($, roots, isLocalPath(path) ? path : `${await $.session.cwd()}/${path}`)
+    const landed = await placeEdit($, roots, path)
     await ops.setWork(w => (w.session === session ? { ...w, tracking: noteEdit(w.tracking, landed, editor) } : w))
   }
+}
+
+/** An edit's path as a tool named it, to where it lands; one that cannot be placed is inside no root. */
+async function placeEdit($: EngineInterface, roots: readonly string[], named: string): Promise<string> {
+  const path = placedPath(named, await $.session.cwd())
+  return path ? landedAt($, roots, path) : `unresolved path: ${named}`
 }
 
 /** Where an edit landed, links followed, spelled from the allowed root it landed in. */
@@ -237,9 +243,9 @@ async function landedAt($: EngineInterface, roots: readonly string[], path: stri
     for (; at > 1; at--) {
       const folder = await resolved(steps.slice(0, at).join('/'))
       if (!folder) continue
-      const listed = await $.fs.list(steps.slice(0, at).join('/')).catch(() => [])
-      // A link with nothing behind it yet can lead anywhere: no path, so inside no root.
-      if (listed.some(x => x.isLink && foldCase(x.name) === foldCase(steps[at] as string))) return `unresolved link: ${path}`
+      // Something is there and leads nowhere: a link, whichever of its names was used, which can come to
+      // lead anywhere. No path, so inside no root.
+      if (await $.fs.stat(steps.slice(0, at + 1).join('/')).then(() => true, () => false)) return `unresolved link: ${path}`
       real = `${folder}/${steps.slice(at).join('/')}`
       break
     }
@@ -260,8 +266,7 @@ export async function proofToolRan($: EngineInterface, ops: ProofOps, editedPath
     const editor = agentId ?? ''
     void inOrder(async () => {
       if ((await ops.work()).tracking.open.length === 0) return
-      const named = isLocalPath(editedPath) ? editedPath : `${await $.session.cwd()}/${editedPath}`
-      const path = await landedAt($, (await ops.proof()).allowed.map(a => a.grant.root), named)
+      const path = await placeEdit($, (await ops.proof()).allowed.map(a => a.grant.root), editedPath)
       await ops.setWork(w => (w.session === session ? { ...w, tracking: noteEdit(w.tracking, path, editor) } : w))
     }).catch(() => undefined)
   }
@@ -544,8 +549,9 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
     typed = parsed.check
   } else if (rest) {
     const folder = rest.replace(/^"(.*)"$/, '$1')
-    if (/^[\\/]{2}|(?:^|[\\/])\.\.(?:[\\/]|$)/.test(folder)) return 'OS-Deck proof: give a folder on this machine, without "..".'
-    from = isLocalPath(folder) ? folder : `${from}/${folder}`
+    const placed = /(?:^|[\\/])\.\.(?:[\\/]|$)/.test(folder) ? null : placedPath(folder, from)
+    if (!placed) return 'OS-Deck proof: give a folder on this machine, without "~" or "..".'
+    from = placed
   }
   const found = (verb === 'check' ? p.draft?.root : null) ?? (await topOf($, from))
   const root = found && (p.allowed.find(a => samePath(a.grant.root, found))?.grant.root ?? found)

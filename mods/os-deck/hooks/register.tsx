@@ -1228,6 +1228,9 @@ export const register: Register = (on, options) => {
     } finally {
       callLoop.delete(e.tool_use_id)
     }
+    // First, by itself: what fails below must not lose an edit's note.
+    if (ran.deny === undefined)
+      await quietly($, 'proof tool', () => proofToolDone($, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, hasFailed: ran.isError === true, agentId: e.agentId ?? null }))
     await quietly($, 'tool result', async () => {
       const didRun = ran.deny === undefined
       // An approved ask settled at tool.run; what is left here was refused, or never reached the run.
@@ -1273,8 +1276,6 @@ export const register: Register = (on, options) => {
         return
       }
       const hasFailed = didRun && ran.isError === true
-      if (didRun)
-        await quietly($, 'proof tool', () => proofToolDone($, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, hasFailed, agentId: e.agentId ?? null }))
       const isEdit = !hasFailed && didRun && EDIT_TOOLS.has(e.tool)
       if (didRun && (isEdit || e.tool === 'Bash' || e.tool === 'PowerShell')) void pokeGit($, cfg, false)
       // A push or a gh pr command changes what the GitHub section shows: read it again now.

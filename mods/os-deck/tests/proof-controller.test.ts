@@ -79,13 +79,13 @@ const world = (ROOT = '/repo') => {
     },
     fs: {
       list: async (path: string) =>
-        w.dangling.some(x => x.slice(0, x.lastIndexOf('/')) === path) ? w.dangling.map(x => ({ name: x.slice(x.lastIndexOf('/') + 1), kind: 'other', size: 0, isLink: true })) :
         path.toLowerCase() === ROOT.toLowerCase() ? [{ name: '.git', kind: 'dir', size: 0, isLink: false }, ...Object.keys(files).map(name => ({ name, kind: 'file', size: files[name]!.length, isLink: false }))] : [],
       read: async (path: string, options?: { as?: string }) => {
         const text = files[path.slice(ROOT.length + 1)] ?? ''
         return options?.as === 'bytes' ? { base64: btoa(String.fromCharCode(...new TextEncoder().encode(text))) } : text
       },
       stat: async (path: string) => {
+        if (w.dangling.includes(path)) return { kind: 'other', size: 0, mtimeMs: 0, isLink: true }
         if (w.missing.includes(path)) throw new Error('ENOENT')
         return { kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: w.links[path] ?? path }
       },
@@ -1164,3 +1164,57 @@ for (const how of ['a link, then folders not made yet', 'a link that leads nowhe
     proof.proofEditSettled(id)
     expect(w.p.claims[0]?.outside.length).toBe(1)
   })
+
+// ---------------------------------------------------------------- what the sixth attack got past
+
+const OUT = ['\\beside\\x.ts', '/beside/x.ts', '~/notes/x.md', '~someone/x.md', 'C:x.ts', 'D:\\beside\\x.ts', '\\\\host\\share\\x.ts', '//host/share/x.ts', '  ~/x.md', 'a.ts:hidden']
+for (const when of ['returned', 'in flight'] as const)
+  test(`T1: an outside edit ${when} is outside, however it is spelled`, async () => {
+    for (const path of OUT) {
+      const { w, $, ops, allow, task } = world('C:/repo')
+      await allow()
+      await task('1', 'in_progress')
+      const id = `spelled-${w.session}`
+      if (when === 'returned') await proof.proofToolRan($, ops, path, null)
+      else proof.proofEditStarted(id, { tool: 'Write', input: { file_path: path }, agentId: null })
+      w.files['a.ts'] = 'two'
+      await task('1', 'completed')
+      proof.proofEditSettled(id)
+      expect([path, w.p.claims[0]?.outside.length]).toEqual([path, 1])
+    }
+  })
+
+test('T1: an inside edit is inside, however it is spelled', async () => {
+  for (const path of ['C:\\repo\\a.ts', '/repo/a.ts', '\\repo\\a.ts', 'a.ts', './a.ts', 'c:/REPO/a.ts']) {
+    const { w, $, ops, allow, task } = world('C:/repo')
+    await allow()
+    await task('1', 'in_progress')
+    await proof.proofToolRan($, ops, path, null)
+    w.files['a.ts'] = 'two'
+    await task('1', 'completed')
+    expect([path, w.p.claims[0]?.outside]).toEqual([path, []])
+  }
+})
+
+test('T2: a dangling link named by an alias still leads nowhere', async () => {
+  const { w, allow, task } = world()
+  await allow()
+  await task('1', 'in_progress')
+  // No listing has this name: only stat knows what it is.
+  const alias = `${ROOT}/AVERYL~1`
+  w.dangling = [alias]
+  w.missing = [`${alias}/x.ts`]
+  const id = `alias-${w.session}`
+  proof.proofEditStarted(id, { tool: 'Write', input: { file_path: `${alias}/x.ts` }, agentId: null })
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  proof.proofEditSettled(id)
+  expect(w.p.claims[0]?.outside.length).toBe(1)
+})
+
+test('C3: setup takes a folder with no drive to the drive it is on, and one it cannot place to none', async () => {
+  const { w, $, ops } = world('C:/repo')
+  await proof.proofCommand($, ops, 'setup /repo', true)
+  expect(w.p.draft?.root).toBe('C:/repo')
+  for (const folder of ['~/repo', 'C:repo', '//host/share']) expect([folder, await proof.proofCommand($, ops, `setup ${folder}`, true)]).toEqual([folder, 'OS-Deck proof: give a folder on this machine, without "~" or "..".'])
+})
