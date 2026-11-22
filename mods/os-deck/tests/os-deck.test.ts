@@ -1101,7 +1101,9 @@ test('a subagent that takes a task up moves under it; a group finishing raises a
   await ui.unmount()
   await $.tool.call({ tool: 'TaskUpdate', taskId: '2', status: 'completed', agentId: 'w1' } as never)
   expect(toasts).toEqual(['✓ v1 / API done'])
-  const stored = db.get('plan-history:/proj#S1') as { done: Record<string, number> } | undefined
+  // Saved after the call has answered, under the directory's hash.
+  await new Promise(done => setTimeout(done, 50))
+  const stored = [...db].find(([k]) => k.startsWith('plan-history:') && k.endsWith('#S1'))?.[1] as { done: Record<string, number> } | undefined
   expect(stored?.done).toEqual({ v1: 2, 'v1 / API': 2 })
 })
 
@@ -1208,6 +1210,10 @@ test('a workspace of several repositories shows a git row for each, feature bran
       ? [{ name: '.git', kind: 'dir' }]
       : [{ name: 'api', kind: 'dir' }, { name: 'web', kind: 'dir' }, { name: 'notes.md', kind: 'file' }, { name: '.cache', kind: 'dir' }]
     return { value: entries.map(x => ({ ...x, isLink: false })) } as never
+  })
+  on('fs.stat', (_$, e) => {
+    if (!/[\\/](api|web)[\\/]\.git$/.test((e as unknown as { path: string }).path)) throw new Error('ENOENT')
+    return { value: { kind: 'dir', isLink: false, size: 0, mtimeMs: 0 } } as never
   })
   const calls: string[] = []
   on('process.run', (_$, e) => {

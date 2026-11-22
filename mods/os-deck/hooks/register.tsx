@@ -78,6 +78,7 @@ import {
   planCurrent,
   groupsFinished,
   historyAdd,
+  dirKey,
   newlyDone,
   historyBefore,
   groupSpent,
@@ -116,7 +117,7 @@ import { isTurnAlert, scheduleAskAlert, sendAlert, settleAskAlert, stopAlerts, t
 import type { AlertConfig } from './alerts'
 import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './github'
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
-import { historyReport, inTurn, loadHistory, pruneHistory, recordDay, sessionKeysIn } from './history'
+import { flushHistory, historyReport, inTurn, loadHistory, pruneHistory, recordDay, sessionKeysIn } from './history'
 import { gitRead, readRepoState } from './safe-git'
 import type { Config, Panel } from './core'
 
@@ -189,12 +190,14 @@ async function getGit($: EngineInterface): Promise<Git> {
   return normalizeGit(await read($, git))
 }
 
+/** How many folders beneath an opened one are looked at for repositories. */
+const MAX_CHILDREN = 200
 // Each repository's integration branch, found once: remote branches rarely come and go.
 const baseOf = new Map<string, string | null>()
 
 /** One repository: its state, and on a feature branch how far it sits from its integration branch. */
-async function readRepo($: EngineInterface, dir: string, name: string): Promise<GitRepo | null> {
-  const state = await readRepoState($, dir)
+async function readRepo($: EngineInterface, dir: string, name: string, withUntracked: boolean): Promise<GitRepo | null> {
+  const state = await readRepoState($, dir, withUntracked)
   if (!state) return null
   const repo: GitRepo = { ...state, name: redact(name), branch: redact(state.branch), base: null, baseAhead: 0, baseBehind: 0 }
   if (!repo.branch || isTrunk(repo.branch) || repo.branch === 'detached') return repo
@@ -216,13 +219,15 @@ async function readRepo($: EngineInterface, dir: string, name: string): Promise<
  */
 async function readBranchOnly($: EngineInterface, dir: string, name: string): Promise<GitRepo> {
   let branch = ''
+  const gitDir = await $.fs.stat(`${dir}/.git`)
   // A .git file (a linked worktree, a submodule) points elsewhere: the name alone.
-  const gitDir = (await $.fs.list(dir)).find(x => x.name === '.git')
-  if (gitDir?.kind === 'dir' && !gitDir.isLink) {
-    const head = (await $.fs.list(`${dir}/.git`)).find(x => x.name === 'HEAD')
-    if (head?.kind === 'file' && !head.isLink) {
-      const text = String(await $.fs.read(`${dir}/.git/HEAD`)).slice(0, 300).trim()
-      branch = /^ref: refs\/heads\/(\S+)$/.exec(text)?.[1] ?? (/^[0-9a-f]{40,64}$/.test(text) ? 'detached' : '')
+  if (gitDir.kind === 'dir' && !gitDir.isLink) {
+    const head = await $.fs.stat(`${dir}/.git/HEAD`)
+    if (head.kind === 'file' && !head.isLink && head.size < 4096) {
+      const text = String(await $.fs.read(`${dir}/.git/HEAD`)).trim()
+      const ref = /^ref: refs\/heads\/(\S+)$/.exec(text)?.[1]
+      // `.invalid` stands in HEAD where the branches are in a reftable.
+      branch = ref === '.invalid' ? '' : (ref ?? (/^[0-9a-f]{40,64}$/.test(text) ? 'detached' : ''))
     }
   }
   return { name: redact(name), branch: redact(branch), ahead: 0, behind: 0, base: null, baseAhead: 0, baseBehind: 0, staged: 0, untracked: 0, conflicts: 0 }
@@ -239,18 +244,20 @@ async function refreshGit($: EngineInterface, runInChildren: boolean) {
     const d = top.stdout.trim()
     dirs.push({ dir: d, name: d.split('/').pop() || d })
   } else {
+    let looked = 0
     for (const en of await $.fs.list(cwd)) {
-      if (dirs.length >= 6) break
+      if (dirs.length >= 6 || looked >= MAX_CHILDREN) break
       if (en.kind !== 'dir' || en.isLink || en.name.startsWith('.')) continue
       const dir = `${cwd}/${en.name}`
-      // Listed, not `exists`: that would follow a linked .git to wherever it leads.
-      const inside = await $.fs.list(dir).catch(() => [])
-      if (inside.some(x => x.name === '.git' && !x.isLink)) dirs.push({ dir, name: en.name })
+      looked += 1
+      // One look, not a listing of the child: a child can hold thousands of files.
+      const dotGit = await $.fs.stat(`${dir}/.git`).catch(() => null)
+      if (dotGit && !dotGit.isLink) dirs.push({ dir, name: en.name })
     }
   }
   const before = await getGit($)
   // A repository that failed this time keeps its last reading rather than blinking out.
-  const read = await Promise.all(dirs.map(d => (isRepo || runInChildren ? readRepo($, d.dir, d.name) : readBranchOnly($, d.dir, d.name)).catch(() => before.repos.find(r => r.name === d.name) ?? null)))
+  const read = await Promise.all(dirs.map(d => (isRepo || runInChildren ? readRepo($, d.dir, d.name, runInChildren) : readBranchOnly($, d.dir, d.name)).catch(() => before.repos.find(r => r.name === d.name) ?? null)))
   const repos = read.filter((x): x is GitRepo => x !== null)
   // Two reads may overlap: the one that started later wins, whichever ends last.
   await update($, git, x => {
@@ -262,16 +269,29 @@ async function refreshGit($: EngineInterface, runInChildren: boolean) {
 // Not more often than every few seconds unless forced. No lock: a read cut off with its
 // session would hold it for good, and two reads at once only write the same thing twice.
 let gitLast = 0
+let gitBusy = false
+let gitAgain = false
 async function pokeGit($: EngineInterface, cfg: Config, force: boolean) {
   if (!cfg.panels.includes('git')) return
   const now = await $.clock.now()
   if (!force && now - gitLast < 4000) return
   gitLast = now
+  // One read at a time; one asked meanwhile runs once after it.
+  if (gitBusy) {
+    gitAgain = true
+    return
+  }
+  gitBusy = true
   try {
-    await refreshGit($, cfg.gitChildRepos)
+    do {
+      gitAgain = false
+      await refreshGit($, cfg.gitChildRepos)
+    } while (gitAgain)
   } catch (err) {
     // Called without waiting: nothing may escape, the log line included (the session may be gone).
     await say($, 'os-deck', `git read failed: ${String(err)}`, 'error').catch(() => undefined)
+  } finally {
+    gitBusy = false
   }
 }
 
@@ -622,13 +642,7 @@ async function autoEpic($: EngineInterface, isOn: boolean, siteOpt: string | nul
   }
 }
 
-const PLAN_HISTORY_MS = 14 * 86_400_000
 const PLAN_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite', 'ExitPlanMode'])
-
-/** The project's plan history lives in the store under the session's directory. */
-async function historyKey($: EngineInterface) {
-  return `plan-history:${await $.session.cwd()}`
-}
 
 /**
  * After a task change: a toast for a group it finished, this session's counts written to the
@@ -639,30 +653,48 @@ async function afterPlanChange($: EngineInterface, before: Plan, after: Plan, in
   if (agentId && taskId && input.status === 'in_progress') await update($, plan, p => planLinkTo(normalizePlan(p), taskId, agentId))
   const finished = groupsFinished(before, after)
   if (finished[0]) $.ui.toast(`✓ ${finished[0]} done`)
-  const done = newlyDone(before, after)
-  if (done.length === 0) return
-  const key = await historyKey($)
-  const id = await $.session.id()
+  // A change to a task already finished counts too: moved to a group, or reopened before its record had ids.
+  const wasDone = before.tasks.some(t => t.id === taskId && t.status === 'completed')
+  if (newlyDone(before, after).length === 0 && !wasDone && unsaved.size === 0) return
+  // Not awaited: the tool call does not wait for the store.
+  void savePlanHistory($, before, after, now).catch(err => say($, 'os-deck', `history save failed: ${String(err)}`, 'error').catch(() => undefined))
+}
+
+// Finished tasks whose save has not succeeded: the next save carries them.
+const unsaved = new Set<string>()
+
+async function savePlanHistory($: EngineInterface, before: Plan, after: Plan, now: number) {
+  const live = after.tasks.filter(t => t.status === 'completed' && t.doneAt !== null && t.source === 'task')
+  const fresh = newlyDone(before, after).map(t => t.id)
+  const carried = before.tasks.filter(t => t.status === 'completed' && !unsaved.has(t.id)).map(t => t.id)
+  for (const id of fresh) unsaved.add(id)
   await inTurn(async () => {
-    // The first write carries over what this session saved in the map all sessions once shared.
-    const own = await $.store.get(`${key}#${id}`)
-    const old = own === undefined ? ((await $.store.get(key)) as Record<string, unknown> | null | undefined)?.[id] : own
-    await $.store.set(`${key}#${id}`, historyAdd(old, done, now))
+    const cwd = await $.session.cwd()
+    const id = await $.session.id()
+    const key = `plan-history:${dirKey(cwd)}#${id}`
+    let stored = await $.store.get(key)
+    let counted: string[] = []
+    if (stored === undefined) {
+      // The map all sessions shared before 0.4.3, its key the directory itself.
+      const shared = await $.store.get(`plan-history:${cwd}`).catch(() => undefined)
+      stored = (shared as Record<string, unknown> | null | undefined)?.[id]
+      if (stored !== undefined) counted = carried
+    }
+    await $.store.set(key, historyAdd(stored, live, now, counted))
+    unsaved.clear()
   })
 }
 
-/** What the project's other sessions finished, read into the plan; records past their two weeks are dropped. */
+/** What the project's other sessions finished, read into the plan. */
 async function loadPlanHistory($: EngineInterface, sessionId: string) {
-  const base = await historyKey($)
+  // After the writes asked before it, outside their queue: reading must not hold them up.
+  await flushHistory()
+  const cwd = await $.session.cwd()
+  const base = `plan-history:${dirKey(cwd)}`
   const now = await $.clock.now()
-  const shared = await $.store.get(base)
+  const shared = await $.store.get(`plan-history:${cwd}`).catch(() => undefined)
   const all: Record<string, unknown> = typeof shared === 'object' && shared !== null ? { ...shared } : {}
-  for (const key of sessionKeysIn(await $.store.keys().catch(() => []), base)) {
-    const record = await $.store.get(key)
-    const at = (record as { at?: unknown } | null | undefined)?.at
-    if (typeof at === 'number' && now - at > PLAN_HISTORY_MS) await $.store.delete(key).catch(() => undefined)
-    else all[key.slice(base.length + 1)] = record
-  }
+  for (const key of sessionKeysIn(await $.store.keys().catch(() => []), base)) all[key.slice(base.length + 1)] = await $.store.get(key)
   const history = historyBefore(all, sessionId, now)
   await update($, plan, p => ({ ...normalizePlan(p), history }))
 }
@@ -907,6 +939,8 @@ export const register: Register = (on, options) => {
       stopAccountTimers()
       stopAlerts()
     }
+    // What was asked to be saved is saved before the session goes.
+    await flushHistory()
     if (e.reason === 'clear') {
       await resetAll($)
       // The conversation that follows is a new session: every record is an earlier one's.

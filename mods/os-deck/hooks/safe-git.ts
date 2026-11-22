@@ -22,13 +22,14 @@ export function gitRead($: EngineInterface, dir: string, args: readonly string[]
 const namesIn = (stdout: string) => stdout.split('\0').filter(Boolean)
 
 /** Branch, upstream distance, staged, untracked and conflicts, from refs, the index and directory listings. */
-export async function readRepoState($: EngineInterface, dir: string): Promise<RepoState | null> {
+export async function readRepoState($: EngineInterface, dir: string, withUntracked: boolean): Promise<RepoState | null> {
   const head = await gitRead($, dir, ['symbolic-ref', '--quiet', 'HEAD'])
   // Exit 1 is a detached head.
   if (head.exitCode > 1) return null
   const [staged, untracked, unmerged, upstream] = await Promise.all([
     gitRead($, dir, ['diff-index', '--cached', '--name-only', '--no-renames', '--no-ext-diff', '--no-textconv', '--ignore-submodules=dirty', '--diff-filter=u', '-z', 'HEAD', '--']),
-    gitRead($, dir, ['ls-files', '--others', '--exclude-standard', '--directory', '--no-empty-directory', '-z']),
+    // The one read that opens nested repositories, and follows where their .git points: opt-in.
+    withUntracked ? gitRead($, dir, ['ls-files', '--others', '--exclude-standard', '--directory', '--no-empty-directory', '-z']) : { exitCode: 0, stdout: '' },
     gitRead($, dir, ['ls-files', '--unmerged', '-z']),
     gitRead($, dir, ['rev-list', '--left-right', '--count', '@{upstream}...HEAD', '--']),
   ])

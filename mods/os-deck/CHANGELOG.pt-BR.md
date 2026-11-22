@@ -6,13 +6,13 @@
 
 Correções de segurança e de perda de dados.
 
-- **Mudou: o git não roda mais nos repositórios dentro da pasta que você abre.** A config deles podia fazer o git contatar um compartilhamento de rede. O dock mostra só a branch deles; a nova opção `gitChildRepos` (desligada por padrão) devolve as contagens em pastas em que você confia. O repositório que você abre continua exposto a isso pelo git do próprio Claude Code, que o dock não controla.
+- **Mudou: o git não abre mais repositórios aninhados na pasta que você abre.** A config ou o arquivo `.git` deles podia apontar para um compartilhamento de rede. Os que ficam dentro de uma pasta mostram só a branch, e arquivos não rastreados não são mais contados. A nova opção `gitChildRepos` (desligada por padrão) devolve os dois em pastas em que você confia. O repositório que você abre continua exposto a isso pelo git do próprio Claude Code, que o dock não controla.
 - **As palavras de um plano aprovado ficam fora do system prompt.**
-- **A redação** cobre muitos outros formatos de token e deixa em paz código comum, nomes de branch e títulos.
+- **A redação** cobre mais formatos de token e deixa em paz uma lista curta e fixa de frases e nomes comuns. Outros textos comuns com cara de segredo continuam mascarados.
 - **Cinco regexes lentas** em texto não confiável agora são lineares ou limitadas.
 - **`/os-deck demo` não substitui mais o seu plano** nem grava no histórico do projeto.
-- **O histórico não se perde mais:** retomar soma ao que foi salvo, um reset mantém as sessões anteriores, e cada sessão salva na própria chave, uma escrita por vez.
-- **Agentes rodando nunca são descartados** para abrir espaço depois de 24; os terminados saem primeiro.
+- **O histórico não se perde mais:** retomar soma ao que foi salvo, um reset mantém as sessões anteriores, uma gravação que falha é recuperada na seguinte, e cada sessão salva na própria chave. As chamadas de ferramenta não esperam mais por ele.
+- **Agentes rodando são mantidos** depois de 24, até 200; os terminados saem primeiro.
 - **Comandos do PowerShell** atualizam a seção Git.
 
 ## os-deck 0.4.2

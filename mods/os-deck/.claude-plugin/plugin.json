@@ -185,8 +185,8 @@
       "default": true
     },
     "gitChildRepos": {
-      "title": "Run git in repositories beneath the opened folder",
-      "description": "Off, a folder holding several repositories shows only each one's branch, read without running git: a repository's git config can make git contact a network share. Turn on only if you trust every repository in the folders you open; it adds their counts and distance from the base branch",
+      "title": "Let git look inside nested repositories",
+      "description": "Off, the Git section does not count untracked files, and a folder holding several repositories shows only each one's branch: both counts make git open nested repositories, whose config or .git file can point it at a network share. Turn on only for folders you trust throughout",
       "type": "boolean",
       "default": false
     },

@@ -2,7 +2,7 @@
 
 [English](README.md) · **Português**
 
-**141 testes automatizados** (114 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
+**152 testes automatizados** (125 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
 
 ![O mascote do os-deck mudando de estado: pensando, lendo, editando, rodando um comando, subagentes, esperando seu ok, falhando, compactando, pronto, parado e dormindo](docs/media/mascot-states.gif)
 
@@ -23,7 +23,7 @@ O os-deck saiu do [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.
 | **[Previsões](#alertas-e-previsões)** | Turnos até o contexto encher, tempo restante do plano |
 | **Histórico** | Turnos, tempo, tarefas, subagentes, custo e espera por dia, entre sessões (`/os-deck today`, `/os-deck history`) |
 | **Plano, git e Jira** | Tarefas em árvore por fase com seus subagentes, o estado de cada repositório, o épico do Jira |
-| **Testes** | 114 testes novos, além de 27 mantidos dos 28 do Flightdeck |
+| **Testes** | 125 testes novos, além de 27 mantidos dos 28 do Flightdeck |
 
 ## Autor
 
@@ -54,7 +54,7 @@ Acompanhar sessões longas sem rolar o transcript. Na visão `plan` (padrão):
 | Seção | O que mostra |
 |---|---|
 | Cabeçalho | O mascote (Clawd) e, ao lado, modelo, contexto, custo, limites 5h/7d e a conta ativa do `cswap` |
-| Git | Branch, ahead/behind e arquivos staged, não rastreados e em conflito do repositório da sessão. Numa pasta com vários, só a branch de cada um, a menos que `gitChildRepos` esteja ligado |
+| Git | Branch, ahead/behind e arquivos staged e em conflito do repositório da sessão; numa pasta com vários, só a branch de cada um. `gitChildRepos` acrescenta os não rastreados e a linha completa de cada um |
 | GitHub | O PR da branch (estado, checks, review, issues que fecha) pelo `gh`; sem PR, os abertos do repositório |
 | Épico | A issue do Jira citada na sessão e os filhos do épico acima dela |
 | Plano | As tarefas (`TaskCreate`) agrupadas por trabalho e fase (Plano, Implementação, Qualidade), com os subagentes aninhados em cada tarefa |
@@ -153,14 +153,14 @@ Saída de `claude plugin validate mods/os-deck`:
   - `prompt.compose`: acrescenta ao prompt de sistema uma seção pedindo que as tarefas sejam agrupadas por trabalho e fase (desligável com `planHint` e `planPolicy`).
   - `tool.call` e `session.append`: só observam as chamadas de ferramenta e as mensagens para desenhar o plano, os agentes, as permissões e o log. Passam tudo adiante sem negar, reescrever nem atrasar nada.
   - `$.process.run`: roda `git --no-optional-locks -C <dir> symbolic-ref|diff-index --cached|ls-files|for-each-ref|rev-list|rev-parse` por vetor de argumentos, sem shell, para a seção Git. Com a opção `github` ligada, roda `<ghCommand> pr view --json …` e `<ghCommand> pr list --state open --json …` no diretório da sessão (só leitura). Com a opção `cswap` ligada, roda também `<cswapCommand> list --json` (leitura da conta) e `<cswapCommand> switch [<alvo>] --json`, este só quando a pessoa pede com `/os-deck account <alvo>`. O alvo é validado antes (veja a seção acima), e o executável vem só do `userConfig`, nunca de um argumento do comando.
-  - `$.fs.list`, `$.fs.read`: acham os repositórios dentro de uma pasta aberta e leem a branch de cada um em `.git/HEAD`, sem seguir links e sem rodar git neles (a menos que `gitChildRepos` esteja ligado).
+  - `$.fs.list`, `$.fs.stat`, `$.fs.read`: acham os repositórios dentro de uma pasta aberta (entre as primeiras 200 pastas) e leem a branch de cada um em `.git/HEAD`, sem seguir links e sem rodar git neles (a menos que `gitChildRepos` esteja ligado).
   - `$.tool.call`: lê issue e épico do Jira pelo conector Atlassian (`getJiraIssue`, `searchJiraIssuesUsingJql`), só com `jiraFetch` ligado ou com `/os-deck epic`. Cada leitura pede permissão como qualquer chamada de ferramenta.
 - `$.session.cwd`, `$.session.id`, `$.session.messages`, `$.session.usage`: diretório, id, histórico (para reconstruir o plano ao retomar) e uso da sessão.
 - `$.state` (`os-deck.*`): estado do painel na sessão, incluindo a ferramenta do loop principal e os horários de fim de turno e de falha que o mascote usa, a última leitura da conta (`os-deck.account`), para uma recarga do mod não contar como troca. Lê também, sem escrever, `skins.prefs`, `skins.custom` e `skins.isLight`, para usar as cores do skin.
-- `$.store`: seções ocultas e, numa chave por sessão, o histórico do plano (`plan-history:<diretório>#<sessão>`, duas semanas) e o resumo de cada dia (`os-deck:history#<sessão>`, uns dois meses).
+- `$.store`: seções ocultas; o histórico do plano numa chave por sessão (`plan-history:<hash do diretório>#<sessão>`, duas semanas); o resumo de cada dia (`os-deck:day:<dia>#<sessão>`, juntado em `os-deck:history-days` quando o dia passa, uns dois meses).
 - `$.ui.notify`: os alertas de permissão esperando e de turno longo (opção `alerts`). `$.clock.now`, `$.clock.every` (leitura da conta a cada 45 s), `$.clock.after` (nova leitura quando a janela de 35 s termina), ambos cancelados no fim da sessão, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
 
-O texto que o dock salva de comandos, agentes, tasks, Jira, GitHub e erros perde os caracteres de controle e passa por uma redação que esconde tokens, senhas e chaves. Ela funciona por padrão de texto, então um segredo em formato desconhecido ainda pode aparecer. O git é lido só com comandos que não abrem o conteúdo dos seus arquivos, porque esses podem fazer o git rodar programas escolhidos pelo repositório: por isso a seção Git conta arquivos staged, não rastreados e em conflito, mas não os modificados, e nunca diz que um repositório está limpo. Pastas montadas como repositório bare não são lidas (isso exige git 2.38 ou mais novo). Títulos e tipos do Jira, e os nomes de seção de um plano que você aprovou, não entram no system prompt. No Windows, o git do próprio Claude Code segue caminhos de rede citados na config do repositório que você abre, o que pode mandar o hash do seu login para esse host. O dock não consegue impedir isso, então abra só repositórios em que você confia.
+O texto que o dock salva de comandos, agentes, tasks, Jira, GitHub e erros perde os caracteres de controle e passa por uma redação que esconde tokens, senhas e chaves. Ela funciona por padrão de texto, então um segredo em formato desconhecido ainda pode aparecer. O git é lido só com comandos que não abrem o conteúdo dos seus arquivos, porque esses podem fazer o git rodar programas escolhidos pelo repositório: por isso a seção Git conta arquivos staged e em conflito, não os modificados, e os não rastreados só com `gitChildRepos` (listá-los faz o git abrir repositórios aninhados), e nunca diz que um repositório está limpo. Pastas montadas como repositório bare não são lidas (isso exige git 2.38 ou mais novo). Títulos e tipos do Jira, e os nomes de seção de um plano que você aprovou, não entram no system prompt. No Windows, o git do próprio Claude Code segue caminhos de rede citados na config do repositório que você abre, o que pode mandar o hash do seu login para esse host. O dock não consegue impedir isso, então abra só repositórios em que você confia.
 
 ## Configuração
 
@@ -182,7 +182,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Versão do Claude Code validada
 
-2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.4.3 passou nos seus 141 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
+2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.4.3 passou nos seus 152 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
 
 ## Licença
 

@@ -20,7 +20,10 @@ export type DayRecord = {
 }
 
 export const EMPTY_DAY: DayRecord = { turns: 0, busyMs: 0, tasks: 0, agents: 0, costUsd: 0, asks: 0, askWaitMs: 0 }
-/** Read only since 0.4.3, when each session got a key of its own beside it (`os-deck:history#<session>`). */
+/**
+ * Read only since 0.4.3. A session now writes `os-deck:day:<day>#<session>`; once a day no longer
+ * changes, its keys fold into DAYS_KEY.
+ */
 export const HISTORY_KEY = 'os-deck:history'
 /** Days kept: about two months. */
 export const HISTORY_DAYS = 62
@@ -93,33 +96,86 @@ export function inTurn<T>(job: () => Promise<T>): Promise<T> {
 export const sessionKeysIn = (keys: readonly string[], base: string): string[] =>
   keys.filter(k => k.startsWith(`${base}#`) && !/[#/\\]/.test(k.slice(base.length + 1)))
 
-/** Every session's days added up, with what was saved before each had its own key. */
-export async function loadHistory($: EngineInterface): Promise<Record<string, DayRecord>> {
-  return inTurn(async () => {
-    const out = normalizeHistory(await $.store.get(HISTORY_KEY))
-    for (const key of sessionKeysIn(await $.store.keys().catch(() => []), HISTORY_KEY)) {
-      for (const [day, record] of Object.entries(normalizeHistory(await $.store.get(key)))) {
-        const sum = { ...(out[day] ?? EMPTY_DAY) }
-        for (const f of Object.keys(EMPTY_DAY) as (keyof DayRecord)[]) sum[f] += record[f]
-        out[day] = sum
-      }
-    }
-    return normalizeHistory(out)
-  })
+/** Waits for the writes asked so far. */
+export async function flushHistory() {
+  await inTurn(async () => undefined)
 }
 
-/** Drops the keys of sessions whose last day has left the history. Never throws. */
+const DAY_PREFIX = 'os-deck:day:'
+const DAYS_KEY = 'os-deck:history-days'
+const PRUNED_KEY = 'os-deck:pruned'
+const PLAN_PREFIX = 'plan-history:'
+const PLAN_KEPT_MS = 14 * 86_400_000
+
+const sumOf = (a: DayRecord, b: DayRecord): DayRecord => {
+  const out = { ...a }
+  for (const f of Object.keys(EMPTY_DAY) as (keyof DayRecord)[]) out[f] += b[f]
+  return out
+}
+
+/** The session keys of each day. */
+const byDay = (keys: readonly string[]) => {
+  const out = new Map<string, string[]>()
+  for (const key of keys) {
+    const day = key.startsWith(DAY_PREFIX) ? /^(\d{4}-\d{2}-\d{2})#/.exec(key.slice(DAY_PREFIX.length))?.[1] : undefined
+    if (day) out.set(day, [...(out.get(day) ?? []), key])
+  }
+  return out
+}
+
+async function sumDay($: EngineInterface, day: string, keys: readonly string[]): Promise<DayRecord> {
+  let sum = EMPTY_DAY
+  for (const key of keys) sum = sumOf(sum, normalizeHistory(await $.store.get(key))[day] ?? EMPTY_DAY)
+  return sum
+}
+
+/** Every session's days added up, with what was saved before each had its own key. */
+export async function loadHistory($: EngineInterface): Promise<Record<string, DayRecord>> {
+  // After the writes asked before it, outside their queue: reading must not hold them up.
+  await flushHistory()
+  const out = normalizeHistory(await $.store.get(HISTORY_KEY))
+  const folded = normalizeHistory(await $.store.get(DAYS_KEY))
+  for (const [day, record] of Object.entries(folded)) out[day] = sumOf(out[day] ?? EMPTY_DAY, record)
+  for (const [day, keys] of byDay(await $.store.keys().catch(() => [])))
+    if (!folded[day]) out[day] = sumOf(out[day] ?? EMPTY_DAY, await sumDay($, day, keys))
+  return normalizeHistory(out)
+}
+
+/**
+ * Once a day, beside the writes rather than among them: days past changing fold into one key, and plan
+ * records past their two weeks go. A folded day is never added to, so two sessions folding it write the
+ * same sum. Never throws.
+ */
 export async function pruneHistory($: EngineInterface, now: number) {
   try {
+    const today = dayOf(now)
+    if ((await $.store.get(PRUNED_KEY)) === today) return
+    await $.store.set(PRUNED_KEY, today)
+    const keys = await $.store.keys()
+    const settled = dayOf(now - 2 * 86_400_000)
     const oldest = dayOf(now - HISTORY_DAYS * 86_400_000)
-    await inTurn(async () => {
-      for (const key of sessionKeysIn(await $.store.keys(), HISTORY_KEY)) {
-        const last = Object.keys(normalizeHistory(await $.store.get(key))).pop()
-        if (last && last < oldest) await $.store.delete(key)
-      }
-    })
+    const past = [...byDay(keys)].filter(([day]) => day < settled)
+    if (past.length > 0) {
+      const sums = new Map<string, DayRecord>()
+      for (const [day, dayKeys] of past) if (day >= oldest) sums.set(day, await sumDay($, day, dayKeys))
+      // Read after summing: keys are deleted only once their day is folded, so a day not folded by now
+      // was summed whole, and one another session folded meanwhile keeps that session's sum.
+      const days = normalizeHistory(await $.store.get(DAYS_KEY))
+      for (const [day, sum] of sums) if (!days[day]) days[day] = sum
+      await $.store.set(DAYS_KEY, normalizeHistory(days))
+      for (const [, dayKeys] of past) for (const key of dayKeys) await $.store.delete(key)
+    }
+    for (const key of keys) {
+      if (!key.startsWith(PLAN_PREFIX)) continue
+      const v = await $.store.get(key)
+      if (typeof v !== 'object' || v === null) continue
+      // A session's record, or the map sessions shared before 0.4.3, kept until its newest has expired.
+      const own = (v as { at?: unknown }).at
+      const times = typeof own === 'number' ? [own] : Object.values(v).map(x => (x as { at?: unknown } | null)?.at).filter((x): x is number => typeof x === 'number')
+      if (times.length > 0 && times.every(at => now - at > PLAN_KEPT_MS)) await $.store.delete(key)
+    }
   } catch {
-    // Left for another start.
+    // Left for another day.
   }
 }
 
@@ -127,7 +183,7 @@ export async function pruneHistory($: EngineInterface, now: number) {
 export async function recordDay($: EngineInterface, at: number, delta: Partial<DayRecord>) {
   try {
     await inTurn(async () => {
-      const key = `${HISTORY_KEY}#${await $.session.id()}`
+      const key = `${DAY_PREFIX}${dayOf(at)}#${await $.session.id()}`
       await $.store.set(key, addToDay(await $.store.get(key), at, delta))
     })
   } catch {

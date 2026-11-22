@@ -12,7 +12,8 @@ const pane = { plugin: 'os-deck', component: 'Pane', requestId: 'flightdeck', su
 const command = (args: string) => ({ command: 'os-deck', args, origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } }) as never
 const settle = () => new Promise(done => setTimeout(done, 80))
 
-const world = (on: On, sessionId = 'S1') => {
+const world = (on: On, sessionId = 'S1', o: { cwd?: string; getMs?: number; failPlanSaves?: number } = {}) => {
+  let failing = o.failPlanSaves ?? 0
   const clock = mock.clock(on)
   const db = new Map<string, unknown>()
   on('ui.status', () => ({ value: undefined }))
@@ -21,11 +22,12 @@ const world = (on: On, sessionId = 'S1') => {
   on('store.get', async (_$, e) => {
     const value = db.get((e as unknown as { key: string }).key)
     // A real store answers later: long enough for parallel writers to read the same value.
-    await new Promise(done => setTimeout(done, 1))
+    await new Promise(done => setTimeout(done, o.getMs ?? 1))
     return { value } as never
   })
   on('store.set', (_$, e) => {
     const x = e as unknown as { key: string; value: unknown }
+    if (x.key.startsWith('plan-history:') && failing-- > 0) throw new Error('lock timeout')
     db.set(x.key, JSON.parse(JSON.stringify(x.value)))
     return { value: undefined } as never
   })
@@ -34,13 +36,15 @@ const world = (on: On, sessionId = 'S1') => {
     return { value: undefined } as never
   })
   on('store.keys', () => ({ value: [...db.keys()] }) as never)
-  on('session.cwd', () => ({ value: '/repo' }) as never)
+  on('session.cwd', () => ({ value: o.cwd ?? '/repo' }) as never)
   on('session.id', () => ({ value: sessionId }) as never)
   on('command.register', () => ({ value: undefined }) as never)
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   return { clock, db }
 }
+
+const planRecord = (db: Map<string, unknown>) => [...db].find(([k]) => k.startsWith('plan-history:') && k.endsWith('#S1'))?.[1]
 
 const taskTools = (on: On) => {
   let n = 0
@@ -58,6 +62,7 @@ test('a repository beneath the opened folder is shown without running git in it'
   })
   on('fs.exists', (_$, e) => ({ value: /child[\\/]\.git$/.test((e as unknown as { path: string }).path) }) as never)
   on('fs.read', () => ({ value: 'ref: refs/heads/feat/child\n' }) as never)
+  on('fs.stat', (_$, e) => ({ value: { kind: /HEAD$/.test((e as unknown as { path: string }).path) ? 'file' : 'dir', isLink: false, size: 1, mtimeMs: 0 } }) as never)
   const inChild: string[][] = []
   on('process.run', (_$, e) => {
     const argv = (e as unknown as { argv: string[] }).argv
@@ -127,10 +132,8 @@ test('ordinary code, names and prose are left alone', () => {
     'pip install sk-learn-contrib',
     'BYPASS=1',
     'COMPASS=on',
-    'MONKEY=banana',
-    'PWD=/home/me/project',
+    'MONKEY=1',
     'max_tokens=4096',
-    'GET https://registry.npmjs.org:443/@types/node',
   ]
   expect(plain.filter(s => redact(s) !== s)).toEqual([])
 })
@@ -193,7 +196,7 @@ test('a completion after resume adds to the history saved before it', async ($, 
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', tool_use_id: 'u1' } as never)
   await settle()
   // This session's own record, or the shared map it was kept in before.
-  const own = db.get('plan-history:/repo#S1') ?? (db.get('plan-history:/repo') as Record<string, unknown>).S1
+  const own = planRecord(db) ?? (db.get('plan-history:/repo') as Record<string, unknown>).S1
   expect((own as { done: unknown }).done).toEqual({ Old: 4, G: 4 })
 })
 
@@ -257,4 +260,164 @@ test('a PowerShell command refreshes git', async ($, on) => {
   await $.tool.call({ tool: 'PowerShell', command: 'git checkout x', tool_use_id: 'ps1' } as never)
   await settle()
   expect(runs).toBeGreaterThan(0)
+})
+
+// ---------------------------------------------------------------- found reviewing 0.4.3 before its release
+
+test('nothing 0.4.2 masked shows again', () => {
+  const S = 'SEC9xQ'
+  const rows = [
+    `bash -c "export DB_PASSWORD=\\"correct horse ${S}\\""`,
+    `DB_PASSWORD="ab\\"cd${S}"`,
+    `jdbc:postgresql://h/db?user=a&password=Summer#${S}`,
+    `token=eyJhbGciOiJB.abcdefgh.ijklmnop.${S}.tagtagtag`,
+    `password=sk-Winter2026x!${S}`,
+    `secret=AKIA${'ABCDEFGHIJKLMNOP'}:${S}`,
+    `BYPASS=1;DEPLOY_KEY=${S}`,
+    `PWD=/home/app;password=${S}`,
+    `MYSQL_PWD=/home/${S}`,
+    `ghs_123456_${S}`,
+    `password: BYPASS=1;${S}`,
+    `https://r.org:443/@types/node--token ${S}`,
+    `token: |\n  export token=\n${S}`,
+  ]
+  expect(rows.filter(r => redact(r).includes(S))).toEqual([])
+  expect(redact('sk-qwertyuiopasdf-zqwmxvrtghjkl')).not.toContain('zqwmxvrtghjkl')
+})
+
+test('claimed formats hold in their real spellings', () => {
+  const rows = [`whsec_abcDEF123456+/${V}=`, `password: |2\n    ${V}`, `password: | # comment\n  ${V}`, `password: |\n\n  ${V}`, `https://discord.com/api/v10/webhooks/1234/${V}`]
+  expect(rows.filter(r => redact(r).includes(V))).toEqual([])
+  for (const s of ['boroughs_population', 'highs_breakouts', 'credentials: include']) expect(redact(s)).toBe(s)
+})
+
+test('untracked files, which make git open nested repositories, are not listed by default', async ($, on) => {
+  world(on)
+  const calls: string[][] = []
+  on('process.run', (_$, e) => {
+    const argv = (e as unknown as { argv: string[] }).argv
+    calls.push(argv)
+    const stdout = argv.includes('rev-parse') ? '/repo\n' : argv.includes('symbolic-ref') ? 'refs/heads/main\n' : ''
+    return { value: { exitCode: 0, stdout, stderr: '' } } as never
+  })
+  await $.turn.start({ text: 'go', turnId: 'N1' })
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'N1', reason: 'answer' } as never)
+  await settle()
+  expect(calls.some(a => a.includes('--unmerged'))).toBe(true)
+  expect(calls.some(a => a.includes('--others'))).toBe(false)
+})
+
+const finishTwo = async ($: any) => {
+  for (const id of ['1', '2']) await $.tool.call({ tool: 'TaskCreate', subject: `t${id}`, description: 'd', metadata: { group: 'G' }, tool_use_id: `fc${id}` })
+  for (const id of ['1', '2']) {
+    await $.tool.call({ tool: 'TaskUpdate', taskId: id, status: 'completed', tool_use_id: `fu${id}` })
+    await settle()
+  }
+}
+
+test('a failed save is made good by the next', async ($, on) => {
+  const { db } = world(on, 'S1', { failPlanSaves: 1 })
+  taskTools(on)
+  await finishTwo($)
+  expect((planRecord(db) as { done: unknown } | undefined)?.done).toEqual({ G: 2 })
+})
+
+test('history keys fit the store in a long directory', async ($, on) => {
+  const { db } = world(on, '12345678-1234-1234-1234-123456789012', { cwd: `/${'d'.repeat(235)}` })
+  taskTools(on)
+  await finishTwo($)
+  const keys = [...db.keys()].filter(k => k.startsWith('plan-history:'))
+  expect(keys.length).toBe(1)
+  expect(keys[0]!.length).toBeLessThan(256)
+})
+
+test('a task call does not wait for the history store', async ($, on) => {
+  world(on, 'S1', { getMs: 400 })
+  taskTools(on)
+  await $.tool.call({ tool: 'TaskCreate', subject: 't', description: 'd', metadata: { group: 'G' }, tool_use_id: 'w1' } as never)
+  const started = Date.now()
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', tool_use_id: 'w2' } as never)
+  expect(Date.now() - started).toBeLessThan(300)
+  await new Promise(done => setTimeout(done, 1700))
+})
+
+test('a task counted before the upgrade is not counted again', async ($, on) => {
+  const { clock, db } = world(on)
+  await clock.advance(1_000)
+  taskTools(on)
+  await finishTwo($)
+  for (const k of [...db.keys()]) if (k.startsWith('plan-history:')) db.delete(k)
+  // As 0.4.2 left it: both counted, no task ids.
+  db.set('plan-history:/repo', { S1: { at: 1, done: { G: 2 } } })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress', tool_use_id: 'r1' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', subject: 'renamed', tool_use_id: 'r2' } as never)
+  await settle()
+  expect((planRecord(db) as { done: unknown } | undefined)?.done).toEqual({ G: 2 })
+})
+
+test('a task grouped after it finished is counted there', async ($, on) => {
+  const { db } = world(on)
+  taskTools(on)
+  await $.tool.call({ tool: 'TaskCreate', subject: 't', description: 'd', tool_use_id: 'g1' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', tool_use_id: 'g2' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', metadata: { group: 'Late' }, tool_use_id: 'g3' } as never)
+  await settle()
+  expect((planRecord(db) as { done: unknown } | undefined)?.done).toEqual({ Late: 1 })
+})
+
+test('expired history goes whatever panels are shown, and past days fold into one key', { options: { panels: 'main,log' } }, async ($, on) => {
+  const { clock, db } = world(on)
+  on('session.start', () => ({ cwd: '/repo' }) as never)
+  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: '' } }) as never)
+  on('fs.list', () => ({ value: [] }) as never)
+  await clock.advance(100 * 86_400_000)
+  db.set('plan-history:/gone', { old: { at: 1, done: { G: 1 } } })
+  db.set('plan-history:abc#old', { at: 1, done: { G: 1 } })
+  const past = new Date(90 * 86_400_000).toISOString().slice(0, 10)
+  for (const id of ['a', 'b', 'c']) db.set(`os-deck:day:${past}#${id}`, { [past]: { turns: 2 } })
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  await settle()
+  await settle()
+  const keys = [...db.keys()]
+  expect(keys.filter(k => k.startsWith('plan-history:') || k.startsWith('os-deck:day:'))).toEqual([])
+  expect(JSON.stringify(db.get('os-deck:history-days') ?? null)).toContain('"turns":6')
+})
+
+test('a folder of thousands is not walked whole', async ($, on) => {
+  let looks = 0
+  on('fs.list', (_$, e) => {
+    looks += 1
+    const path = String((e as unknown as { path?: string }).path ?? '')
+    return { value: /d\d+$/.test(path) ? [] : Array.from({ length: 3000 }, (_, i) => ({ name: `d${i}`, kind: 'dir', isLink: false })) } as never
+  })
+  on('fs.stat', () => {
+    looks += 1
+    throw new Error('ENOENT')
+  })
+  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: '' } }) as never)
+  world(on)
+  await $.turn.start({ text: 'go', turnId: 'F1' })
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'F1', reason: 'answer' } as never)
+  await new Promise(done => setTimeout(done, 800))
+  expect(looks).toBeLessThanOrEqual(201)
+})
+
+test('a reftable repository shows no made-up branch', async ($, on) => {
+  on('fs.list', (_$, e) => {
+    const path = String((e as unknown as { path?: string }).path ?? '')
+    const entry = /\.git$/.test(path) ? { name: 'HEAD', kind: 'file' } : /child$/.test(path) ? { name: '.git', kind: 'dir' } : { name: 'child', kind: 'dir' }
+    return { value: [{ ...entry, isLink: false }] } as never
+  })
+  on('fs.stat', (_$, e) => ({ value: { kind: /HEAD$/.test((e as unknown as { path: string }).path) ? 'file' : 'dir', isLink: false, size: 1, mtimeMs: 0 } }) as never)
+  on('fs.read', () => ({ value: 'ref: refs/heads/.invalid\n' }) as never)
+  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: '' } }) as never)
+  world(on)
+  await $.turn.start({ text: 'go', turnId: 'R1' })
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'R1', reason: 'answer' } as never)
+  await settle()
+  const ui = await $.ui.mount(pane as never)
+  const drawn = JSON.stringify(await ui.drawn())
+  await ui.unmount()
+  expect(drawn).toContain('child')
+  expect(drawn).not.toContain('.invalid')
 })

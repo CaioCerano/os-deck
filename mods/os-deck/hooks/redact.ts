@@ -9,69 +9,28 @@ const MAX_SCAN = 50_000
 /** Dropped from the end of cut text: a secret the cut split no longer matches its rule. */
 const CUT_MARGIN = 512
 
-/** Where a token may begin: after anything but a letter or digit, or straight after an escape or a percent-encoded byte. */
-const START = String.raw`(?:(?<![A-Za-z0-9])|(?<=\\[nrt]|%[0-9A-Fa-f]{2}))`
-const token = (shape: string) => new RegExp(START + shape, 'g')
-
-// Everything that looks like a secret is masked. The exceptions below are each an exact shape that
-// holds none: widen one only with a case showing it cannot pass a secret through.
-
-/** Words that open a title such as "Fix token: refresh flow", none of them anybody's password. */
-const TITLE_WORD = /^(?:add|allow|avoid|change|check|drop|expire|expiry|fix|handle|move|refresh|rename|remove|reset|rotate|rotation|store|support|update|use|validate|validation)$/
-/** Code that reads a secret and holds none: `getToken()`, `os.environ["NAME"]`. */
-const CODE_VALUE = /^(?:(?:get|read|load|fetch|create|generate)[A-Z][A-Za-z]{1,24}\(\)|os\.environ\[["'][A-Z_]{1,40}["']\]|os\.getenv\(["'][A-Z_]{1,40}["']\));?$/
-const LITERAL_VALUE = /^(?:true|false|null|none|undefined)[,;]?$/i
-const WORKING_DIR = /^(?:\/(?:home|Users|root|workspaces?)\/|[A-Za-z]:[\\/]Users[\\/])/
-/** Upper-case names that only happen to end in KEY or PASS. */
-const NOT_A_SECRET_NAME = /(?:^|_)(?:MONKEY|DONKEY|TURKEY|HOCKEY|BYPASS|COMPASS|SURPASS)=$/
-/** `sk-dashboard`, `pk_migration_fix`, `rk_release2026`: short words, at most a year after one. */
-const WORDS_NOT_KEY = /^(?:sk|pk|rk)(?:[-_][a-z]{2,14}(?:20\d\d)?){1,5}$/
-
-/** A named value masked, unless it is plainly a title, code, a literal, or the working directory. */
-const maskNamed = (whole: string, lead: string, name: string, value: string, at: number, text: string) => {
-  if (LITERAL_VALUE.test(value)) return whole
-  if (name === 'PWD' && lead === 'PWD=' && WORKING_DIR.test(value)) return whole
-  if (/\s=\s+$/.test(lead.slice(-12)) && CODE_VALUE.test(value)) return whole
-  const end = at + whole.length
-  if (/^(?:token|secret|password)$/i.test(name) && /: $/.test(lead) && TITLE_WORD.test(value) && /^ [A-Za-z]{2}/.test(text.slice(end, end + 3))) return whole
-  return `${lead}${MASK}`
-}
-
-const maskUpperName = (whole: string, lead: string) => (NOT_A_SECRET_NAME.test(lead) ? whole : `${lead}${MASK}`)
-const maskKeyShape = (whole: string) => (WORDS_NOT_KEY.test(whole) ? whole : MASK)
-
-type Rule = readonly [RegExp, string | ((match: string, ...groups: any[]) => string)]
-
-const RULES: readonly Rule[] = [
+// RULES only ever grows at MORE: changing or reordering these has leaked what they used to hide.
+const RULES: readonly [RegExp, string][] = [
   [/-----BEGIN [A-Z ]{0,30}PRIVATE KEY[A-Z ]{0,10}-----[\s\S]*?(?:-----END [A-Z ]{0,50}-----|$)/g, MASK],
   // Authorization: <scheme> <credential>, as a header, an assignment or JSON.
   [/(authorization\\?["']?\s{0,5}[:=]\s{0,5}\\?["']?(?:(?:bearer|basic|token|digest|negotiate|bot|api-?key)\s{1,5})?)[^\s"'\\]+/gi, `$1${MASK}`],
   [/\b(bearer\s{1,5})[A-Za-z0-9._~+/-]{8,}=*/gi, `$1${MASK}`],
-  // Tokens known by their shape. A prefix no word contains needs no boundary before it.
-  [/gh[opsur]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}/g, MASK],
-  [/(?<![A-Z])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Z0-9])/g, MASK],
-  [/(?:shpat|shpss|shpca|whsec)_[A-Za-z0-9]{16,}|dop_v1_[A-Za-z0-9]{16,}/g, MASK],
-  [token(String.raw`(?:xox[abeoprs]|xapp)[-_][A-Za-z0-9_-]{8,}`), MASK],
-  [token(String.raw`sk-(?:proj|ant|svcacct|admin)-[A-Za-z0-9_-]{8,}`), MASK],
-  [token(String.raw`(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{8,}`), MASK],
-  [token(String.raw`(?:sk|pk|rk)[-_][A-Za-z0-9_-]{8,}`), maskKeyShape],
-  [token(String.raw`(?:glpat-|pypi-|ya29\.)[A-Za-z0-9._-]{16,}`), MASK],
-  [token(String.raw`xai-[A-Za-z0-9]{16,}`), MASK],
-  [token(String.raw`(?:npm_|hf_)[A-Za-z0-9]{16,}`), MASK],
-  [token(String.raw`AIza[A-Za-z0-9_-]{16,}`), MASK],
-  [token(String.raw`SG\.[A-Za-z0-9_-]{16,100}\.[A-Za-z0-9_-]{16,100}`), MASK],
-  [token(String.raw`eyJ[A-Za-z0-9_-]{4,2000}\.[A-Za-z0-9_-]{4,8000}\.[A-Za-z0-9_-]*`), MASK],
+  // Tokens known by their shape.
+  [/\b(?:sk|pk|rk|xox[abeoprs]|xapp)[-_][A-Za-z0-9_-]{8,}/g, MASK],
+  [/(?:\bgh[opsur]_|\bgithub_pat_)[A-Za-z0-9_]{8,}/g, MASK],
+  [/\b(?:glpat-|pypi-|ya29\.)[A-Za-z0-9._-]{16,}/g, MASK],
+  [/\b(?:npm_|hf_)[A-Za-z0-9]{16,}/g, MASK],
+  [/\bAIza[A-Za-z0-9_-]{16,}/g, MASK],
+  [/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, MASK],
+  [/\beyJ[A-Za-z0-9_-]{4,2000}\.[A-Za-z0-9_-]{4,8000}\.[A-Za-z0-9_-]*/g, MASK],
   [/(hooks\.slack\.com\/services\/)[A-Za-z0-9/_-]+/gi, `$1${MASK}`],
-  [/(discord(?:app)?\.com\/api\/webhooks\/)[A-Za-z0-9/_-]+/gi, `$1${MASK}`],
-  // An upper-case name ending like a secret's. Before the query rule: here & is part of the value.
-  [/(\b[A-Z0-9_]{0,80}(?:KEY|TOKEN|SECRET|PASSWORD|PASS)\d{0,3}=)(?!•••)(?:"[^"\n]*"?|'[^'\n]*'?|\S+)/g, maskUpperName],
-  // In a query string a value ends at the next &; anywhere else & can be part of a password.
-  [/([?&](?:[a-z0-9]{1,20}[_.-]){0,3}(?:key|apikey|token|secret|password|passwd|pwd|sig|signature|auth|credential|x-amz-signature|x-amz-credential|x-amz-security-token)=)[^&\s"'#]+/gi, `$1${MASK}`],
-  // A name that ends like a secret's, then = or :, then the value: shell, env, JSON, YAML.
+  // A name that ends like a secret's, then = or :, then the value: shell, env, JSON, YAML, query strings.
   [
-    /((api[_-]?key|access[_-]?key(?:[_-]?id)?|secret[_-]?key|private[_-]?key|account[_-]?key|auth[_-]?key|credentials|token|secret|password|passwd|passphrase|pwd|[_-]pass)(?:[_-](?:base64|base|value|b64|plain|text))?\d{0,4}\\?["']?\s{0,5}[=:]\s{0,5})(?!•••)([|>][+-]?[ \t]{0,5}(?:\n[ \t]{1,16}[^\n]*){1,200}|\\"[^"\n]*"?|"(?:[^"\\\n]|\\.)*"?|'[^'\n]*'?|\S+)/gi,
-    maskNamed,
+    /((?:api[_-]?key|access[_-]?key(?:[_-]?id)?|secret[_-]?key|private[_-]?key|account[_-]?key|auth[_-]?key|token|secret|password|passwd|passphrase|pwd)\\?["']?\s{0,5}[=:]\s{0,5})(?:\\"[^"\n]*"?|"(?:[^"\\\n]|\\.)*"?|'[^'\n]*'?|[^\s&]+)/gi,
+    `$1${MASK}`,
   ],
+  [/(\b[A-Z0-9_]{0,80}(?:KEY|TOKEN|SECRET|PASSWORD|PASS)=)(?:"[^"\n]*"?|'[^'\n]*'?|\S+)/g, `$1${MASK}`],
+  [/([?&](?:key|sig|signature|auth|x-amz-signature|x-amz-credential|x-amz-security-token)=)[^&\s"'#]+/gi, `$1${MASK}`],
   // Command-line flags.
   [/(--(?:[a-z0-9]{1,20}-){0,3}(?:token|password|passwd|api-?key|secret|secret-key|passphrase)(?:=|[ \t]{1,5}))(?:"[^"\n]*"?|'[^'\n]*'?|\S+)/gi, `$1${MASK}`],
   [/(\bcurl(?:\.exe)?\b[^\n|;]{0,300}?\s(?:-u|--user|-U|--proxy-user)(?:=|[ \t]{0,5})["']?[^\s:"']{0,100}:)[^\s"']+/g, `$1${MASK}`],
@@ -80,10 +39,50 @@ const RULES: readonly Rule[] = [
   [/(\b(?:set-)?cookie["']?\s{0,5}:\s{0,5})[^\r\n"']+/gi, `$1${MASK}`],
   [/(\bdocker(?:\.exe)?\s{1,3}login\b[^\n|;&]{0,300}?\s(?:-p|--password)(?:=|[ \t]{0,5}))\S+/g, `$1${MASK}`],
   [/(\bredis-cli(?:\.exe)?\b[^\n|;&]{0,300}?\s-a[ \t]{1,5})\S+/g, `$1${MASK}`],
-  // Credentials in a URL's authority; not a port and then a scoped package (`:443/@types`).
-  [/(:\/\/[^\s/:@]{0,200}:)(?!\d{1,5}\/@[a-z])[^\s@]{1,500}(?:@[^\s@/]{1,200}){0,3}@/g, `$1${MASK}@`],
+  // Credentials in a URL's authority.
+  [/(:\/\/[^\s/:@]{0,200}:)[^\s@]{1,500}(?:@[^\s@/]{1,200}){0,3}@/g, `$1${MASK}@`],
   [/(:\/\/)[A-Za-z0-9_%-]{20,500}@/g, `$1${MASK}@`],
 ]
+
+// Formats added since. They run after RULES, so they can only hide more.
+const MORE: readonly [RegExp, string][] = [
+  // Known shapes where a word boundary misses them: after `_`, an escape, or a percent-encoded byte.
+  [/(?<=_|\\[nrt]|%[0-9A-Fa-f]{2})(?:gh[opsur]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|(?:AKIA|ASIA)[A-Z0-9]{16}|sk-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{16,}|npm_[A-Za-z0-9]{16,})/g, MASK],
+  [/(?:shpat|shpss|shpca)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9+/=]{16,}|dop_v1_[A-Za-z0-9]{16,}/g, MASK],
+  [/(?<![A-Za-z0-9])xai-[A-Za-z0-9]{16,}/g, MASK],
+  [/(?<![A-Za-z0-9])SG\.[A-Za-z0-9_-]{16,100}\.[A-Za-z0-9_-]{16,100}/g, MASK],
+  [/(discord(?:app)?\.com\/api\/(?:v\d{1,3}\/)?webhooks\/)[A-Za-z0-9/_-]+/gi, `$1${MASK}`],
+  // Secret names with an ending: SECRET2, secret_key_base, client_secret_value, db_pass, CREDENTIALS.
+  [/((?:api[_-]?key|secret[_-]?key|secret|token|password|passwd)(?:[_-](?:base64|base|value|b64|plain|text)\d{0,4}|\d{1,4})\\?["']?\s{0,5}[=:]\s{0,5})(?:\\"[^"\n]*"?|"(?:[^"\\\n]|\\.)*"?|'[^'\n]*'?|\S+)/gi, `$1${MASK}`],
+  [/([_-]pass\\?["']?\s{0,3}[=:]\s{0,3})(?:\\"[^"\n]*"?|"(?:[^"\\\n]|\\.)*"?|'[^'\n]*'?|\S+)/gi, `$1${MASK}`],
+  [/(\b[A-Z0-9_]{0,80}CREDENTIALS=)(?:\\"[^"\n]*"?|"(?:[^"\\\n]|\\.)*"?|'[^'\n]*'?|\S+)/g, `$1${MASK}`],
+  // YAML under a secret's name: the lines indented deeper than it carry on the value RULES just masked.
+  [/^([ \t]{0,40})([^\n:]{0,80}(?:password|passwd|passphrase|pwd|secret|token|key|credentials|[_-]pass)\d{0,3}["']?[ \t]{0,3}:[ \t]{0,3}(?:•••|[|>][+-]?\d?[+-]?)[ \t]{0,5}(?:#[^\n]{0,200})?)(?:\n[ \t]{0,40}(?=\n)|\n\1[ \t][^\n]*){1,200}/gim, `$1$2\n$1  ${MASK}`],
+  // Outside a query string an & is part of the password.
+  [/((?:^|\s)[\w.-]{0,40}(?:password|passwd|pwd|secret|token)=•••)&\S+/gi, `$1`],
+]
+
+// Ordinary text the rules would hide. Each is whole space-separated words from a closed list, so none
+// can hold a secret or the trigger of a rule (a path or a URL can hold `--token`, so neither is here).
+// Extend the lists; never open one up to "anything that looks like words".
+const FLAG = String.raw`(?:BYPASS|COMPASS|SURPASS|MONKEY|DONKEY|TURKEY|HOCKEY)=(?:0|1|true|false|yes|no|on|off)`
+const NAME_PART = '(?:learn|contrib|dashboard|migration|fix|release|index|build|test|column|constraint|image|docs)'
+const KEY_LIKE_NAME = String.raw`(?:(?:feature|fix|chore|release)/)?(?:sk|pk|rk)(?:[-_]${NAME_PART}(?:20\d\d)?){1,4}(?:/${NAME_PART})?(?:\.(?:ts|tsx|js|py|md))?`
+const CODE = String.raw`(?:token|secret|password|apiKey) = (?:(?:get|read|load|fetch|create|generate)(?:Token|Secret|Password|ApiKey|Key|Credentials)\(\)|os\.environ\[["'][A-Z_]{1,24}["']\]);?`
+const TITLE = String.raw`(?:token|secret|password): (?:add|allow|avoid|check|expire|expiry|fix|handle|refresh|rename|remove|reset|rotate|rotation|support|update|use|validate|validation)(?= [A-Za-z]{2})`
+const ORDINARY = new RegExp(`(?<=^|\\s)(?:${[FLAG, KEY_LIKE_NAME, CODE, TITLE].join('|')})(?=\\s|$)`, 'g')
+/** One character stands in for each piece of ordinary text while the rules run. Never valid text. */
+const HOLDER = /[﷐-﷯]/g
+const HOLDERS = 32
+
+/** Masks with every rule, ordinary text held out of their way. */
+const maskSecrets = (text: string) => {
+  const kept: string[] = []
+  const held = text
+    .replace(HOLDER, '')
+    .replace(ORDINARY, found => (kept.length < HOLDERS ? String.fromCharCode(0xfdd0 + kept.push(found) - 1) : found))
+  return [...RULES, ...MORE].reduce((t, [re, to]) => t.replace(re, to), held).replace(HOLDER, ch => kept[ch.charCodeAt(0) - 0xfdd0] ?? '')
+}
 
 /** Terminal sequences, the other control characters, and the characters that hide or reorder text. */
 const plainText = (text: string) =>
@@ -97,7 +96,7 @@ const plainText = (text: string) =>
 /** The text as plain text with credentials masked; what is past the scan limit is left out, never passed through. */
 export const redact = (text: string): string => {
   const isCut = text.length > MAX_SCAN
-  const out = RULES.reduce<string>((t, [re, to]) => (typeof to === 'string' ? t.replace(re, to) : t.replace(re, to)), plainText(isCut ? text.slice(0, MAX_SCAN) : text))
+  const out = maskSecrets(plainText(isCut ? text.slice(0, MAX_SCAN) : text))
   return isCut ? `${out.slice(0, -CUT_MARGIN)}…` : out
 }
 

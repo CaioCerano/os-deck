@@ -184,7 +184,7 @@ export type Config = {
   cswapCommand: string
   /** Draw the pet at the head of the plan view's header. */
   pet: boolean
-  /** Run git in the repositories beneath an opened folder; off, only their branch is read, from .git/HEAD. */
+  /** Let git open nested repositories: untracked counts, and full rows for those beneath an opened folder. */
   gitChildRepos: boolean
   /** The GitHub section: the branch's pull request through the gh CLI. */
   github: boolean
@@ -1090,22 +1090,48 @@ export const historyWith = (stored: unknown, sessionId: string, done: Record<str
   return out
 }
 
-export type SessionDone = { at: number; done: Record<string, number>; ids: string[] }
+/** A session's record: `base` from before records had ids, `tasks` the group each finished task counts in, `done` their sum. */
+export type SessionDone = { at: number; base: Record<string, number>; tasks: Record<string, string[]>; seen: string[]; done: Record<string, number> }
 
-/** A session's record with the tasks that just finished added: never recounted, so it cannot shrink. */
-export const historyAdd = (stored: unknown, finished: readonly PlanTask[], now: number): SessionDone => {
+const countsOf = (v: unknown): Record<string, number> =>
+  isObject(v) ? Object.fromEntries(Object.entries(v).filter((e): e is [string, number] => typeof e[1] === 'number')) : {}
+
+const MAX_RECORDED = 500
+
+/**
+ * A session's record brought up to its finished tasks: by task id, so one saved late, renamed, reopened
+ * or moved counts once, where it is now, and one gone from the list still counts. `carried` are the
+ * tasks a record from before ids had already counted.
+ */
+export const historyAdd = (stored: unknown, finished: readonly PlanTask[], now: number, carried: readonly string[] = []): SessionDone => {
   const s = isObject(stored) ? stored : {}
-  const done: Record<string, number> = {}
-  if (isObject(s.done)) for (const [k, n] of Object.entries(s.done)) if (typeof n === 'number') done[k] = n
-  const ids = new Set(listOf<unknown>(s.ids).filter((x): x is string => typeof x === 'string'))
-  for (const t of finished) {
-    // A task reopened and finished again counts once.
-    const id = `${t.id}:${shorten(t.subject, 40)}`
-    if (ids.has(id)) continue
-    ids.add(id)
-    for (const [k, n] of Object.entries(doneByPath([t]))) done[k] = (Object.hasOwn(done, k) ? (done[k] as number) : 0) + n
+  const isOld = !isObject(s.tasks)
+  const base = new Map(Object.entries(countsOf(isOld ? s.done : s.base)))
+  const seen = new Set(isOld ? carried : listOf<unknown>(s.seen).filter((x): x is string => typeof x === 'string'))
+  const tasks = new Map<string, string[]>()
+  if (!isOld) for (const [id, group] of Object.entries(s.tasks as object)) tasks.set(id, listOf<unknown>(group).filter((x): x is string => typeof x === 'string'))
+  for (const t of finished) if (!seen.has(t.id)) tasks.set(t.id, t.group)
+  for (const [id, group] of tasks) {
+    if (tasks.size <= MAX_RECORDED) break
+    for (const k of prefixes(group)) base.set(k, (base.get(k) ?? 0) + 1)
+    seen.add(id)
+    tasks.delete(id)
   }
-  return { at: now, done, ids: [...ids].slice(-500) }
+  const done = new Map(base)
+  for (const group of tasks.values()) for (const k of prefixes(group)) done.set(k, (done.get(k) ?? 0) + 1)
+  return { at: now, base: Object.fromEntries(base), tasks: Object.fromEntries(tasks), seen: [...seen].slice(-MAX_RECORDED), done: Object.fromEntries(done) }
+}
+
+/** A directory as a short fixed-length key: the store refuses keys over 256 characters. */
+export const dirKey = (dir: string) => {
+  let a = 0x811c9dc5
+  let b = 0x01000193
+  for (let i = 0; i < dir.length; i++) {
+    const ch = dir.charCodeAt(i)
+    a = Math.imul(a ^ ch, 0x01000193)
+    b = Math.imul(b ^ ch, 0x5bd1e995)
+  }
+  return `${(a >>> 0).toString(36)}-${(b >>> 0).toString(36)}`
 }
 
 /** The tasks a change finished. */
