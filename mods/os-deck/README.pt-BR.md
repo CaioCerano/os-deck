@@ -108,7 +108,7 @@ Um agente dizer que terminou não prova que terminou. O Agent Proof roda, por co
 |---|---|
 | Pending | Alegada, e nenhum check rodou nesse conteúdo ainda |
 | Verifying | Os checks estão rodando |
-| Verified (`✓ checks`) | Todo check obrigatório passou exatamente no conteúdo atual, e a mudança é dessa tarefa |
+| Verified (`✓ checks`) | Todo check obrigatório passou no conteúdo como lido por último, e esse conteúdo mudou durante esta tarefa, sem outra tarefa ou agente visto editando |
 | Failed | Um check falhou |
 | Inconclusive | Falta algo ou algo não está claro: sem baseline, conteúdo ilegível, tarefas sobrepostas, edição fora dos repositórios liberados |
 | Stale | O conteúdo mudou depois que os checks rodaram |
@@ -119,19 +119,24 @@ No que ele confia:
 
 - Nunca na mensagem de um agente, na saída de uma ferramenta ou em "os testes passam", e nunca no histórico salvo, que é só histórico.
 - Só um botão apertado no dock libera ou roda sob demanda. Um comando só mostra ou rascunha: um link clicado chega igual a um comando digitado, então leia o rascunho antes de liberar.
-- Um script de check ou manifesto vigiado que muda pausa os checks até você ver de novo e liberar.
+- Um arquivo vigiado que muda pausa os checks até você ver de novo e liberar: os scripts mostrados, os arquivos que eles mandam rodar, os manifestos e configs deles e programas de mesmo nome em `node_modules/.bin`.
 - `/clear` e uma sessão nova derrubam toda liberação e toda evidência.
 
 O que saber antes de apertar allow:
 
 - **Os checks rodam como você, fora dos pedidos de permissão e do sandbox.** No automático, código que um agente escreve nos seus testes roda no fim do turno sem perguntar. Variáveis de credencial conhecidas são apagadas; o resto do seu ambiente, não.
-- Ele não vê arquivos ignorados, pastas vazias, alternate data streams, bits de execução mudados só no disco, dependências nem escritas de shell e MCP fora dos repositórios liberados. Um agente que edita seus testes pode fazê-los passar: testes, scripts e config de teste alterados são listados para a sua revisão.
-- Edições são atribuídas só pelas ferramentas de arquivo: não se sabe quem fez uma escrita de shell ou MCP. Uma tarefa durante a qual outro agente editou, que não um subagente dela, fica Inconclusive.
+- Ele não vê arquivos ignorados, pastas vazias, alternate data streams, bits de execução mudados só no disco, dependências nem escritas de shell e MCP fora dos repositórios liberados. Um agente que edita seus testes pode fazê-los passar: arquivos alterados que pelo nome parecem testes, scripts ou config de teste são listados para a sua revisão, e outros podem importar tanto quanto.
+- Edições são atribuídas só pelas ferramentas de arquivo: não se sabe quem fez uma escrita de shell ou MCP. Uma tarefa durante a qual outro agente editou, que não um subagente dela, fica Inconclusive; assim como uma que um subagente conclui depois de o agente principal ter editado nela.
 - Arquivos alterados e desfeitos enquanto um check roda não são vistos.
 - Num repositório muito grande o dock guarda listagens inteiras de arquivos no estado da sessão, alguns MB.
 - Liberar exige a view plan e um dock de pelo menos 40 colunas.
 - Processos que um check deixa em segundo plano podem continuar depois dele.
-- A contagem de testes é lida do `bun test`, do `claude plugin test` e de `bash …/run_all.sh` que imprime linhas `[PASS]`/`[FAIL]`. Outros runners ainda não podem verificar. Typecheck, lint e build valem pelo código de saída. Um script que roda outros de um jeito que não dá para mostrar inteiro não pode ser liberado.
+- Só uma gramática pequena roda no automático: `claude plugin test`, `bun test`, `bash <arquivo>`, `node <arquivo.js>`, algumas ferramentas (`tsc`, `eslint`, `prettier --check`, `jest`, `vitest run`, `vite build`, `pytest`, `ruff check`, `mypy`) com flags conhecidas, e `npm run <script>` quando o script é feito de palavras simples ligadas por `&&` dessas. Um programa desconhecido como `cargo` ou `make` é só manual. O resto é recusado: aspas, globs, variáveis, redirecionamentos, `npx`, `pnpm`, `yarn`, `turbo` e configurações de `.npmrc` que não se sabe serem inofensivas. O setup deixa de fora o que não pode liberar e avisa.
+- A contagem de testes é lida do `bun test`, do `claude plugin test` e de `bash …/run_all.sh` que imprime linhas `[PASS]`/`[FAIL]`. Outros runners não podem verificar, então o setup não os propõe. Typecheck, lint e build valem pelo código de saída.
+- Ele não vigia imports, dependências, config de ferramentas, o que scripts de shell chamam, nem config do npm na sua pasta pessoal e no ambiente: uma mudança ali roda sem ser vista.
+- Um check que reescreve um arquivo pelo qual é vigiado, como rodar o que acabou de compilar, não pode verificar.
+- Uma mudança sem chamada de ferramenta, de um editor ou outra sessão, pode levar até 30 segundos para deixar um check stale.
+- Depois de 1.000 alegações numa sessão, os checks param de rodar sozinhos: aperte verify.
 - Um repositório que não dá para ler com certeza (links, submódulos, repositórios aninhados, conflitos, mais de 20.000 arquivos) nunca é verificado.
 - Com um repositório liberado, o início e a conclusão de uma tarefa esperam até 1,5 segundo enquanto o conteúdo é lido.
 - Testado só no Windows 11.
@@ -203,6 +208,7 @@ Saída de `claude plugin validate mods/os-deck`:
   - `$.process.run`: roda `git --no-optional-locks -C <dir> symbolic-ref|diff-index --cached|ls-files|for-each-ref|rev-list|rev-parse` por vetor de argumentos, sem shell, para a seção Git. Com a opção `github` ligada, roda `<ghCommand> pr view --json …` e `<ghCommand> pr list --state open --json …` no diretório da sessão (só leitura). Com a opção `cswap` ligada, roda também `<cswapCommand> list --json` (leitura da conta) e `<cswapCommand> switch [<alvo>] --json`, este só quando a pessoa pede com `/os-deck account <alvo>`. O alvo é validado antes (veja a seção acima), e o executável vem só do `userConfig`, nunca de um argumento do comando.
   - `$.process.spawn`: roda os checks do Agent Proof, só os que você liberou com um botão nesta sessão, por vetor de argumentos.
   - Num repositório liberado para o Agent Proof, o `$.process.run` também roda `git ls-files --others`, `git config --show-scope --get-all core.excludesFile` e `git hash-object --no-filters --stdin-paths`, que leem o conteúdo dos seus arquivos sem rodar filtros.
+  - Para o Agent Proof, o `$.fs.read` também lê os manifestos de um repositório, a config de npm e bun dele e os arquivos que os checks citam, quando você digita setup e, depois de liberado, após chamadas de ferramenta e a cada 30 segundos (`$.clock.every`). O `$.fs.stat` resolve os links dos caminhos editados.
   - `$.fs.list`, `$.fs.stat`, `$.fs.read`: acham os repositórios dentro de uma pasta aberta (entre as primeiras 200 pastas) e leem a branch de cada um em `.git/HEAD`, sem seguir links e sem rodar git neles (a menos que `gitChildRepos` esteja ligado).
   - `$.tool.call`: lê issue e épico do Jira pelo conector Atlassian (`getJiraIssue`, `searchJiraIssuesUsingJql`), só com `jiraFetch` ligado ou com `/os-deck epic`. Cada leitura pede permissão como qualquer chamada de ferramenta.
 - `$.session.cwd`, `$.session.id`, `$.session.messages`, `$.session.usage`: diretório, id, histórico (para reconstruir o plano ao retomar) e uso da sessão.

@@ -108,7 +108,7 @@ An agent's claim of completion is not proof of completion. Agent Proof runs chec
 |---|---|
 | Pending | Claimed, and no checks have run on this content yet |
 | Verifying | The checks are running |
-| Verified (`✓ checks`) | Every required check passed on exactly the content there now, and the change is this task's |
+| Verified (`✓ checks`) | Every required check passed on the content as last read, and that content changed during this task, with no other task or agent seen editing |
 | Failed | A check failed |
 | Inconclusive | Something needed is missing or unclear: no baseline, unreadable content, tasks that overlapped, an edit outside the allowed repositories |
 | Stale | The content changed after the checks ran |
@@ -119,19 +119,24 @@ What it trusts:
 
 - Never an agent's message, tool output or "tests pass", and never the saved history, which is only history.
 - Only a press in the dock allows or runs on demand. A command only shows or drafts: a clicked link arrives looking like a typed command, so read a draft before you allow it.
-- A changed check script or watched manifest pauses the checks until you are shown them again and allow them.
+- A change to a watched file pauses the checks until you are shown them again and allow them: the scripts shown, the files they name to run, their manifests and config, and programs of the same names in `node_modules/.bin`.
 - `/clear` and a new session drop every allowance and all evidence.
 
 What to know before you press allow:
 
 - **The checks run as you, outside permission prompts and the sandbox.** With automatic runs, code an agent writes into your tests runs at the end of the turn without a prompt. Known credential variables are blanked; the rest of your environment is not.
-- It does not see ignored files, empty folders, alternate data streams, executable bits changed only on disk, dependencies, or shell and MCP writes outside the allowed repositories. An agent that edits your tests can make them pass: changed tests, scripts and test config are listed for your review.
-- Edits are attributed by the file tools alone: who made a shell or MCP write is not known. A task another agent edited during, other than a subagent filed under it, is Inconclusive.
+- It does not see ignored files, empty folders, alternate data streams, executable bits changed only on disk, dependencies, or shell and MCP writes outside the allowed repositories. An agent that edits your tests can make them pass: changed files that look like tests, scripts or test config by their name are listed for your review, and others can matter as much.
+- Edits are attributed by the file tools alone: who made a shell or MCP write is not known. A task another agent edited during, other than a subagent filed under it, is Inconclusive; so is a task a subagent completes after the main agent edited in it.
 - Files changed and changed back while a check runs are not seen.
 - In a very large repository the dock keeps whole file listings in session state, several MB of it.
 - Allowing needs the plan view and a dock at least 40 columns wide.
 - Processes a check leaves in the background may outlive it.
-- Test counts are read from `bun test`, `claude plugin test` and `bash …/run_all.sh` printing `[PASS]`/`[FAIL]` lines. Other test runners cannot verify yet. Typecheck, lint and build go by exit code. A script that runs others in a way that cannot be shown whole cannot be allowed.
+- Only a small grammar runs automatically: `claude plugin test`, `bun test`, `bash <file>`, `node <file.js>`, a few tools (`tsc`, `eslint`, `prettier --check`, `jest`, `vitest run`, `vite build`, `pytest`, `ruff check`, `mypy`) with known flags, and `npm run <script>` where the script is plain words joined by `&&` of those. An unknown program such as `cargo` or `make` is manual only. Anything else is refused: quotes, globs, variables, redirects, `npx`, `pnpm`, `yarn`, `turbo`, and `.npmrc` settings not known to be harmless. Setup leaves out what it cannot allow and says so.
+- Test counts are read from `bun test`, `claude plugin test` and `bash …/run_all.sh` printing `[PASS]`/`[FAIL]` lines. Other test runners cannot verify, so setup does not propose them. Typecheck, lint and build go by exit code.
+- It does not watch imports, dependencies, tool config, what shell scripts call, or npm config in your home folder and environment: a change there runs unseen.
+- A check that rewrites a file it is watched by, such as running what it just built, cannot verify.
+- A change with no tool call behind it, by an editor or another session, can take up to 30 seconds to turn a check stale.
+- After 1,000 claims in a session, checks stop running by themselves: press verify.
 - A repository that cannot be read for certain (links, submodules, nested repositories, conflicts, over 20,000 files) is never verified.
 - Once a repository is allowed, a task's start and completion wait up to 1.5 seconds while its content is read.
 - Tested on Windows 11 only.
@@ -203,6 +208,7 @@ From `claude plugin validate mods/os-deck`:
   - `$.process.run`: runs `git --no-optional-locks -C <dir> symbolic-ref|diff-index --cached|ls-files|for-each-ref|rev-list|rev-parse` by argument vector, with no shell, for the Git section. With the `github` option on, it runs `<ghCommand> pr view --json …` and `<ghCommand> pr list --state open --json …` in the session's directory (read only). With the `cswap` option on, it also runs `<cswapCommand> list --json` (reading the account) and `<cswapCommand> switch [<target>] --json`, the latter only when you ask with `/os-deck account <target>`. The target is validated first (see the section above), and the executables come only from `userConfig`, never from a command argument.
   - `$.process.spawn`: runs Agent Proof's checks, only those you allowed with a press in this session, by argument vector.
   - In a repository allowed for Agent Proof, `$.process.run` also runs `git ls-files --others`, `git config --show-scope --get-all core.excludesFile` and `git hash-object --no-filters --stdin-paths`, which read your files' contents without running filters.
+  - For Agent Proof, `$.fs.read` also reads a repository's manifests, its npm and bun config and the files its checks name, when you type setup and, once allowed, after tool calls and every 30 seconds (`$.clock.every`). `$.fs.stat` resolves the links of edited paths.
   - `$.fs.list`, `$.fs.stat`, `$.fs.read`: find the repositories beneath an opened folder (among its first 200 folders) and read each one's branch from `.git/HEAD`, without following links and without running git there (unless `gitChildRepos` is on).
   - `$.tool.call`: reads the Jira issue and epic through the Atlassian connector (`getJiraIssue`, `searchJiraIssuesUsingJql`), only with `jiraFetch` on or with `/os-deck epic`. Each read asks permission like any tool call.
 - `$.session.cwd`, `$.session.id`, `$.session.messages`, `$.session.usage`: the session's directory, id, history (to rebuild the plan when resuming) and usage.
