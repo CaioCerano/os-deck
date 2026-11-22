@@ -259,7 +259,9 @@ async function landedAt($: EngineInterface, roots: readonly string[], path: stri
   }
   for (const root of roots) {
     const top = await resolved(root)
-    if (top && real !== `${top}/` && real.startsWith(`${top}/`)) return `${root}/${real.slice(top.length + 1)}`
+    if (!top || real === `${top}/` || !real.startsWith(`${top}/`)) continue
+    // A root is its own path: led elsewhere since the press, it holds no edit. A share's drive alone has two names.
+    if (samePath(top, root) || (top.startsWith('//') && (await resolved(root.slice(0, 3)))?.startsWith('//'))) return `${root}/${real.slice(top.length + 1)}`
   }
   return real
 }
@@ -601,6 +603,15 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
 
 // ---------------------------------------------------------------- presses
 
+/** What was queued or runs under an allowance that is gone. */
+function revokeRuns(root: string) {
+  queued.delete(root)
+  const running = live.get(root)
+  if (!running) return
+  revoked.add(running.id)
+  running.signal.cancel()
+}
+
 export async function pressAllow($: EngineInterface, ops: ProofOps, root: string, drawnDigest: string, auto: boolean): Promise<void> {
   const refuse = async (why: string) => {
     // A second press on the same spot would allow what this one refused: setup is asked for again.
@@ -620,11 +631,14 @@ export async function pressAllow($: EngineInterface, ops: ProofOps, root: string
   if ('refused' in made) return refuse(made.refused)
   const { watched } = again
   let isAllowed = false
+  let replaced: string[] = []
   await ops.setProof(p => {
     // Discarded, or replaced, while this was read.
     isAllowed = p.session === session && p.draft?.root === root && p.draft.digest === drawnDigest
     if (!isAllowed) return p
-    const isHere = (x: { root: string }) => samePath(x.root, root)
+    // One allowance whatever its capitals: renamed by case alone, the folder would otherwise keep the one before.
+    const isHere = (x: { root: string }) => x.root.toLowerCase() === root.toLowerCase()
+    replaced = p.allowed.filter(a => isHere(a.grant)).map(a => a.grant.root)
     // A new allowance takes no evidence from the one before, whatever the clock says of which came first.
     const past = p.attempts.filter(isHere).map(a => ({ root, at: a.startedAt, label: pastLabel(a) }))
     return {
@@ -637,12 +651,7 @@ export async function pressAllow($: EngineInterface, ops: ProofOps, root: string
     }
   })
   if (!isAllowed) return
-  queued.delete(root)
-  const running = live.get(root)
-  if (running) {
-    revoked.add(running.id)
-    running.signal.cancel()
-  }
+  for (const of of new Set([root, ...replaced])) revokeRuns(of)
   watch($, ops)
   await refreshProof($, ops)
   await noteSaved(ops, await saveChecks($, root, made.grant.checks))

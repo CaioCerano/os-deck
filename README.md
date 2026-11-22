@@ -4,7 +4,7 @@
 
 Claude Code mods. For now, one:
 
-**714 automated tests** (687 written for os-deck) · **[a changelog for every release](mods/os-deck/CHANGELOG.md)** · [what os-deck adds over Flightdeck](mods/os-deck/README.md#what-os-deck-adds-over-flightdeck)
+**717 automated tests** (690 written for os-deck) · **[a changelog for every release](mods/os-deck/CHANGELOG.md)** · [what os-deck adds over Flightdeck](mods/os-deck/README.md#what-os-deck-adds-over-flightdeck)
 
 ![The os-deck mascot changing states as a session works](mods/os-deck/docs/media/mascot-states.gif)
 

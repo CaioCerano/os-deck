@@ -2,7 +2,7 @@
 
 [English](README.md) · **Português**
 
-**714 testes automatizados** (687 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
+**717 testes automatizados** (690 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
 
 ![O mascote do os-deck mudando de estado: pensando, lendo, editando, rodando um comando, subagentes, esperando seu ok, falhando, compactando, pronto, parado e dormindo](docs/media/mascot-states.gif)
 
@@ -24,7 +24,7 @@ O os-deck saiu do [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.
 | **[Previsões](#alertas-e-previsões)** | Turnos até o contexto encher, tempo restante do plano |
 | **Histórico** | Turnos, tempo, tarefas, subagentes, custo e espera por dia, entre sessões (`/os-deck today`, `/os-deck history`) |
 | **Plano, git e Jira** | Tarefas em árvore por fase com seus subagentes, o estado de cada repositório, o épico do Jira |
-| **Testes** | 687 testes novos, além de 27 mantidos dos 28 do Flightdeck |
+| **Testes** | 690 testes novos, além de 27 mantidos dos 28 do Flightdeck |
 
 ## Autor
 
@@ -248,7 +248,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Versão do Claude Code validada
 
-2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.5.1 passou nos seus 714 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
+2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.5.1 passou nos seus 717 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
 
 ## Licença
 

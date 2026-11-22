@@ -1262,6 +1262,7 @@ test('C1: on a drive that resolves to a share an inside edit is still inside', a
   // A string in stat's answer alone: nothing is asked of a share.
   const share = '\\\\host.invalid\\share\\repo'
   w.links['C:/repo'] = share
+  w.links['C:/'] = '\\\\host.invalid\\share'
   w.links['C:/repo/a.ts'] = `${share}\\a.ts`
   await proof.proofToolRan($, ops, 'C:/repo/a.ts', null)
   w.files['a.ts'] = 'two'
@@ -1308,3 +1309,26 @@ test('os-review: history of a named folder reads the store alone, as a link can 
     expect([typed, asked]).toEqual([typed, []])
   }
 })
+
+test('R1: allowing again after a rename by case replaces the allowance, automatic and what it left', async () => {
+  for (const before of ['C:/REPO', 'C:/Repo']) {
+    const { w, allow } = world('C:/repo')
+    await allow(true)
+    const [held] = w.p.allowed
+    w.p = { ...w.p, allowed: [{ ...held!, grant: { ...held!.grant, root: before } }], paused: [{ root: before, paths: ['x'] }] }
+    await allow(false)
+    expect([w.p.allowed.map(a => [a.grant.root, a.grant.auto]), w.p.paused]).toEqual([[['C:/repo', false]], []])
+  }
+})
+
+for (const to of ['C:/elsewhere', '//host.invalid/share/elsewhere'])
+  test(`R2: a root led elsewhere as an edit lands holds no edit: ${to}`, async () => {
+    const { w, $, ops, allow, task } = world('C:/repo')
+    await allow()
+    await task('1', 'in_progress')
+    w.links = { 'C:/': 'C:/', 'C:/repo': to, 'C:/repo/a.ts': `${to}/a.ts` }
+    await proof.proofToolRan($, ops, 'C:/repo/a.ts', null)
+    w.files['a.ts'] = 'two'
+    await task('1', 'completed')
+    expect(w.p.claims[0]?.outside.length).toBe(1)
+  })
