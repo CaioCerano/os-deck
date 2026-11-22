@@ -67,7 +67,7 @@ const isInside = (path: string, roots: readonly string[]) => {
 const withName = (names: string[], name: string) => (names.includes(name) || names.length >= MAX_OVERLAP ? names : [...names, name])
 
 const overlappedBy = (open: readonly OpenTask[], taskId: string) =>
-  open.map(task => ({ ...task, overlap: withName(task.overlap, taskId.slice(0, MAX_ID)) }))
+  open.map(task => (task.waiting ? task : { ...task, overlap: withName(task.overlap, taskId.slice(0, MAX_ID)) }))
 
 // ---------------------------------------------------------------- tasks
 
@@ -79,29 +79,34 @@ export const describeTask: Lifecycle['describeTask'] = (t, taskId, text) => {
 
 export const startTask: Lifecycle['startTask'] = (t, x) => {
   // Started again while open: still the one interval, so the first baseline and all seen since stand.
-  if (t.open.some(o => o.taskId === x.taskId)) return t
-  const isTracked = x.taskId !== UNTRACKED && x.taskId.length <= MAX_ID && t.open.length < MAX_OPEN
+  const open = t.open.find(o => o.taskId === x.taskId)
+  if (open && !open.waiting) return t
+  const others = t.open.filter(o => o !== open)
+  const isTracked = x.taskId !== UNTRACKED && x.taskId.length <= MAX_ID && others.length < MAX_OPEN
   const taskId = isTracked ? x.taskId : UNTRACKED
-  if (t.open.some(o => o.taskId === taskId)) return t
+  if (others.some(o => o.taskId === taskId)) return t
 
-  const held = [...t.open.flatMap(o => o.start), ...x.start].reduce((n, m) => n + m.files.length, 0)
+  const held = [...others.flatMap(o => o.start), ...x.start].reduce((n, m) => n + m.files.length, 0)
   const keepsBaseline = isTracked && held <= MAX_BASELINE_FILES
   const task: OpenTask = {
     taskId,
     at: x.at,
     start: keepsBaseline ? [...x.start] : [],
     unread: keepsBaseline ? [...x.unread] : [...x.unread, ...x.start.map(m => m.root)],
-    edits: [],
-    editors: [],
-    overlap: t.open.map(o => o.taskId).reduce(withName, []),
+    // One that waited keeps all that was seen of it: only its baseline is new.
+    edits: open?.edits ?? [],
+    editors: open?.editors ?? [],
+    overlap: others.filter(o => !o.waiting).map(o => o.taskId).reduce(withName, open?.overlap ?? []),
   }
-  return { ...t, open: [...overlappedBy(t.open, taskId), task] }
+  return { ...t, open: [...overlappedBy(others, taskId), task] }
 }
 
 // Which task made an edit is not known, so it is every open one's.
 export const noteEdit: Lifecycle['noteEdit'] = (t, path, editor) => ({
   ...t,
   open: t.open.map(before => {
+    // What is done while it waits is not its work.
+    if (before.waiting) return before
     const isKept = before.editors.includes(editor) || before.editors.length >= MAX_EDITORS
     const task = isKept ? before : { ...before, editors: [...before.editors, editor] }
     // Inside what the task started with it can never count as outside: not kept, so the room is for those that can.
@@ -120,6 +125,13 @@ const nameOf = (task: { subject: string; group: readonly string[] }): string | u
   return named.length > MAX_NAMED ? undefined : named
 }
 
+export const waitTask: Lifecycle['waitTask'] = (t, taskId) => ({
+  ...t,
+  open: t.open.map(o =>
+    o.taskId === taskId && o.taskId !== UNTRACKED ? { ...o, waiting: true, start: [], unread: [...new Set([...o.unread, ...o.start.map(m => m.root)])] } : o,
+  ),
+})
+
 /** Above every number seen, not the count: older claims are pruned, and a reused id would inherit a review. */
 const nextClaimId = (claims: readonly ProofClaim[], session: string, taskId: string) => {
   const prefix = `${session}:${taskId}:`
@@ -137,7 +149,7 @@ export const completeTask: Lifecycle['completeTask'] = (t, x) => {
 
   const isSame = (c: ProofClaim) => c.session === x.session && c.taskId === x.taskId
   // A baseline older than this task's last completion is that completion's, left by a start recorded late.
-  let hasBaseline = task !== undefined && !x.claims.some(c => isSame(c) && c.at > task.at)
+  let hasBaseline = task !== undefined && !task.waiting && !x.claims.some(c => isSame(c) && c.at > task.at)
   const changes: ProofChange[] = []
   const outside: string[] = []
   if (task) {
@@ -145,7 +157,7 @@ export const completeTask: Lifecycle['completeTask'] = (t, x) => {
     // An agent that is neither the claimant nor its helper edited while it worked.
     const other = task.editors.find(id => id !== (x.agentId ?? '') && !x.helpers.includes(id))
     const byOther = other === undefined ? [] : [other ? `agent ${other}`.slice(0, MAX_ID) : 'the main agent']
-    const names = [...byOther, ...task.overlap, ...others.map(o => o.taskId), ...meanwhile.map(c => (c.session === x.session ? c.taskId : c.id))]
+    const names = [...byOther, ...task.overlap, ...others.filter(o => !o.waiting).map(o => o.taskId), ...meanwhile.map(c => (c.session === x.session ? c.taskId : c.id))]
     const overlap = names.reduce(withName, [])
     // Every root known at either end must have been allowed and read at both.
     const roots = new Set([...x.roots, ...task.start.map(m => m.root), ...task.unread, ...x.end.map(m => m.root), ...x.unread])
@@ -216,7 +228,7 @@ export const rootsToRun: Lifecycle['rootsToRun'] = x => {
     let last: ProofAttempt | null = null
     let autoRuns = 0
     for (const a of x.attempts) {
-      if (a.session !== x.session || a.root !== root || a.digest !== digest) continue
+      if (a.session !== x.session || a.root !== root || a.digest !== digest || a.stopped) continue
       if (a.trigger === 'auto') autoRuns += 1
       // The verdict's choice: of those under this allowance, the one recorded last.
       if (a.startedAt >= allowedAt) last = a

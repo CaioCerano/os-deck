@@ -17,6 +17,8 @@ export type Lifecycle = {
   startTask: (t: Tracking, x: { taskId: string; at: number; start: Manifest[]; unread: string[] }) => Tracking
   noteEdit: (t: Tracking, path: string, editor: string) => Tracking
   dropTask: (t: Tracking, taskId: string) => Tracking
+  /** Back to pending: the baseline goes, what was seen stays. */
+  waitTask: (t: Tracking, taskId: string) => Tracking
   completeTask: (
     t: Tracking,
     x: { session: string; taskId: string; subject: string; group?: readonly string[]; agentId: string | null; helpers: readonly string[]; at: number; end: Manifest[]; unread: string[]; roots: string[]; claims: readonly ProofClaim[] },

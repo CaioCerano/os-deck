@@ -53,6 +53,9 @@ async function readAbove(r: Reading): Promise<void> {
 async function readNpm(r: Reading, args: readonly string[]): Promise<void> {
   const name = args.length === 2 && args[0] === 'run' ? args[1] : args.length === 1 && args[0] === 'test' ? 'test' : undefined
   if (!name || !/^[A-Za-z0-9_][A-Za-z0-9_:.-]*$/.test(name)) return refuse(r, 'of npm only `npm run <name>` is understood')
+  // npm joins its PATH with this: a folder's name holding it is two folders there.
+  const delimiter = /^[A-Za-z]:/.test(r.root) ? ';' : ':'
+  if (r.root.includes(delimiter) || r.check.dir.includes(delimiter)) return refuse(r, `a folder's name holds "${delimiter}", which splits the PATH npm makes`)
   await readNpmConfig(r)
   await readAbove(r)
   if (r.own.seen.has(name)) return

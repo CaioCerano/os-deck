@@ -48,7 +48,7 @@ export const rootsNow = (p: ProofSession, w: ProofWork, live: LiveRuns): RootVie
       unreviewed: p.claims.filter(c =>
         c.session === p.session &&
         (!c.hasBaseline || c.changes.some(change => change.root === root && change.paths.length > 0)) &&
-        !p.reviews.some(r => r.claim === c.id),
+        !p.reviews.some(r => r.claim === c.id && r.revisions.some(x => x.root === root)),
       ).length,
       baseline,
     }
@@ -66,7 +66,8 @@ export const presentProof = (p: ProofSession, w: ProofWork, live: LiveRuns, log:
   const newest = new Map(p.claims.filter(c => c.session === p.session).map(c => [c.taskId, c]))
   const tasks = [...newest.values()].map(claim => {
     const own = claim.changes.filter(c => c.paths.length > 0).map(c => c.root)
-    const shown = own.length > 0 ? own : roots.map(r => r.root)
+    // With no baseline its changes could be in any, so a review has to be of each.
+    const shown = own.length > 0 && claim.hasBaseline ? own : roots.map(r => r.root)
     const runs = [...p.past, ...p.attempts.map(a => ({ root: a.root, at: a.startedAt, label: pastLabel(a) }))]
     return {
       claim,

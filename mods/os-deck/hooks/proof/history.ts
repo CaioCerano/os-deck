@@ -141,7 +141,8 @@ const reviewOf = (v: unknown): ProofReview | null => {
     const revision = idOf(r?.revision)
     return root && revision ? { root, revision } : null
   })
-  return claim && at !== null && revisions ? { claim, revisions, at } : null
+  const claimAt = timeOf(f.claimAt)
+  return claim && at !== null && revisions ? { claim, ...(claimAt === null ? {} : { claimAt }), revisions, at } : null
 }
 
 /** A definition, whole or not at all: one required check fewer would pass more easily. */
@@ -343,8 +344,9 @@ export async function loadRecords($: EngineInterface, root: string): Promise<Pro
           if (claim && claimKey(root, claim) === key) out.claims.push(asClaimed(claim))
         } else if (kind === 'r') {
           const review = reviewOf(stored.record)
-          if (!review || reviewKey(root, review) !== key || reviewed.has(review.claim)) continue
-          reviewed.add(review.claim)
+          const of = `${review?.claim}\n${review?.claimAt ?? ''}`
+          if (!review || reviewKey(root, review) !== key || reviewed.has(of)) continue
+          reviewed.add(of)
           out.reviews.push(review)
         } else {
           out.checks = checksOf(root, stored.record) ?? []

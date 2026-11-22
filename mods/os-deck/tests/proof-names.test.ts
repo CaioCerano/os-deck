@@ -25,8 +25,10 @@ const disk = (files: Record<string, string>, links: Record<string, string> = {})
     return [...found.values()]
   }
   const read = async (path: string) => {
-    if (!(path in files)) throw new Error('ENOENT')
-    return { base64: btoa(String.fromCharCode(...new TextEncoder().encode(files[path]))) }
+    // Reading follows a link; one that leads to nothing held here is an empty program.
+    const text = files[path] ?? (path in links ? (files[links[path]!] ?? '') : null)
+    if (text === null) throw new Error('ENOENT')
+    return { base64: btoa(String.fromCharCode(...new TextEncoder().encode(text))) }
   }
   const stat = async (path: string) => ({ kind: 'file', size: 1, mtimeMs: 1, isLink: path in links, realPath: links[path] ?? path })
   return { fs: { list, read, stat } } as unknown as EngineInterface
@@ -94,4 +96,32 @@ test('tsc takes a project named by a file of any name', async () => {
 test('a plugin manifest that cannot be read whole is refused', async () => {
   const d = await draft({ [`${ROOT}/.claude-plugin/plugin.json`]: '{"hooks":' }, check(['claude', 'plugin', 'test', '.']))
   expect(d.problem).not.toBe(null)
+})
+
+test('R5: a folder name that splits npm’s PATH is refused', async () => {
+  for (const [at, dir] of [['C:/work/a;b/repo', ''], ['C:/work/repo', 'x;y'], ['/work/a:b/repo', '']] as const) {
+    const $ = disk({ [`${at}/${dir ? `${dir}/` : ''}package.json`]: pkg('tsc --noEmit') })
+    expect([at, (await draftFor($, at, [check(['npm', 'run', 'lint'], dir)], 'detected')).problem !== null]).toEqual([at, true])
+  }
+})
+
+test('installed shims above the root are bound, not refused', async () => {
+  const files = repo({ 'C:/work/node_modules/.bin/node.cmd': 'x', 'C:/node_modules/.bin/tsc': 'x' })
+  const d = await draft(files)
+  expect(d.problem).toBe(null)
+  expect((await changedOnDisk(disk({ ...files, 'C:/work/node_modules/.bin/node.cmd': 'y' }), ROOT, d.watched)).length).toBe(1)
+})
+
+test('a file named like the pattern itself does not recurse', async () => {
+  const at = '/work/repo'
+  const $ = disk({ [`${at}/package.json`]: pkg('tsc --noEmit'), [`${at}/node_modules/.bin/node.*`]: 'x' })
+  expect((await draftFor($, at, [check()], 'detected')).problem).toBe(null)
+})
+
+test('a linked program is bound by the bytes it leads to', async () => {
+  const at = `${ROOT}/node_modules/.bin/tsc`
+  const to = `${ROOT}/tools/tsc`
+  const d = await draft(repo({ [to]: 'one' }), check(), { [at]: to })
+  expect(d.problem).toBe(null)
+  expect((await changedOnDisk(disk(repo({ [to]: 'two' }), { [at]: to }), ROOT, d.watched)).length).toBe(1)
 })

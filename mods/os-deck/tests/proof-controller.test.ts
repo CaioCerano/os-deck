@@ -955,3 +955,125 @@ test('guard: a cancel after a turn stopped the run still means no more runs', as
   await endTurn()
   expect(w.spawned).toEqual([])
 })
+
+// ---------------------------------------------------------------- what the fourth attack got past
+
+for (const [whose, agentId, path] of [['another agent’s', 'agent-other', '/repo/a.ts'], ['an outside', null, '/elsewhere/x.ts']] as const)
+  test(`R1: ${whose} edit that settles during the completion's read is seen`, async () => {
+    const { w, $, allow, task, endTurn, accept, view } = world()
+    await allow()
+    await task('1', 'in_progress')
+    const id = `settles-${w.session}`
+    proof.proofEditStarted(id, { tool: 'Write', input: { file_path: path }, agentId })
+    w.files['a.ts'] = 'two'
+    const { run } = $.process
+    let armed = true
+    ;($ as unknown as { process: { run: unknown } }).process.run = async (...args: Parameters<typeof run>) => {
+      if (armed && (args[0] as string[]).includes('hash-object')) {
+        armed = false
+        proof.proofEditSettled(id)
+      }
+      return run(...args)
+    }
+    await task('1', 'completed')
+    expect(armed).toBe(false)
+    await endTurn()
+    await accept()
+    expect((await view()).tasks[0]?.verdict.state).toBe('inconclusive')
+  })
+
+test('R2: a stopped run that ran something keeps what it saw, and is still owed', async () => {
+  const { w, $, ops, allow, task, endTurn, accept, view } = world()
+  w.files['package.json'] = JSON.stringify({ scripts: { test: 'bun test', typecheck: 'tsc --noEmit' } })
+  await allow()
+  await task('1', 'in_progress')
+  // Verified by a press before the completion, so an automatic run is owed on the same content.
+  w.files['a.ts'] = 'two'
+  await proof.pressVerify($, ops, ROOT)
+  await pause(120)
+  await accept()
+  expect((await view()).roots[0]?.verdict.state).toBe('verified')
+  await task('1', 'completed')
+  const { spawn } = $.process
+  const spawned = w.spawned.length
+  ;($ as unknown as { process: { spawn: unknown } }).process.spawn = (q: never) => {
+    if (w.spawned.length === spawned) w.work = { ...w.work, turnEnded: false }
+    return spawn(q)
+  }
+  w.output = ' 1 pass\n 0 fail\nRan 1 test across 1 file.\n'
+  await endTurn()
+  expect(w.spawned.length).toBe(spawned + 1)
+  expect((await view()).roots[0]?.verdict.state).not.toBe('verified')
+  await endTurn()
+  expect(w.spawned.length).toBe(spawned + 3)
+})
+
+for (const [what, agentId, path] of [['an outside edit', null, '/elsewhere/x.ts'], ['another agent’s edit', 'agent-other', '/repo/a.ts']] as const)
+  test(`R3: back to pending does not wash away ${what}`, async () => {
+    const { w, $, ops, allow, task, endTurn, accept, view } = world()
+    await allow()
+    await task('1', 'in_progress')
+    await proof.proofToolRan($, ops, path, agentId)
+    await pause(20)
+    await task('1', 'pending')
+    await task('1', 'in_progress')
+    w.files['a.ts'] = 'two'
+    await task('1', 'completed')
+    await endTurn()
+    await accept()
+    expect((await view()).tasks[0]?.verdict.state).toBe('inconclusive')
+  })
+
+test('R4: a review of one repository reviews no other', async () => {
+  const { w, $, ops, allow, view } = world()
+  await allow()
+  const here = w.p.allowed[0]!
+  w.p = {
+    ...w.p,
+    allowed: [here, { ...here, grant: { ...here.grant, root: '/second' } }],
+    claims: [{ id: 'c', session: w.p.session, taskId: '1', subject: 't', description: '', agentId: null, at: w.now, hasBaseline: false, changes: [{ root: ROOT, paths: [{ path: 'a.ts', hash: 'h' }], overlap: [] }], outside: [], withdrawn: false }],
+  }
+  await proof.pressReview($, ops, 'c', [{ root: ROOT, revision: 'r' }])
+  expect((await view()).roots.map(r => r.unreviewed)).toEqual([0, 1])
+})
+
+test('R6: history lends no review to an earlier claim of the same id', async () => {
+  const { w, $, ops, allow, work, task, view } = world()
+  await allow()
+  await work()
+  const first = w.p.claims[0]!
+  await pause(40)
+  // Another process numbers from one again, and saves its claim under another root: this one has only the review.
+  w.p = { ...w.p, claims: [] }
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'three'
+  await task('1', 'completed')
+  await pause(40)
+  const later = (await view()).tasks[0]!
+  expect(later.claim.id).toBe(first.id)
+  await proof.pressReview($, ops, later.claim.id, later.drawn)
+  await pause(40)
+  for (const key of [...w.store.keys()]) if (key.includes(':c:') && key.includes(`:${Math.floor(later.claim.at)}:`)) w.store.delete(key)
+  const said = await proof.proofCommand($, ops, 'history', true)
+  expect(said).toContain('claimed "task 1"')
+  expect(said).not.toContain('reviewed')
+})
+
+test('a task left pending poisons no later task, nor its own next start', async () => {
+  const { w, $, ops, allow, task, endTurn, accept, view } = world()
+  await allow()
+  await task('1', 'in_progress')
+  await task('1', 'pending')
+  await task('2', 'in_progress')
+  w.files['a.ts'] = 'two'
+  await proof.proofToolRan($, ops, '/repo/a.ts', 'agent-two')
+  await task('2', 'completed')
+  // Its editor is not its claimant: only the overlap is asked here.
+  expect(w.p.claims[0]?.changes[0]?.overlap).not.toContain('1')
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'three'
+  await task('1', 'completed')
+  await endTurn()
+  await accept()
+  expect((await view()).tasks.find(t => t.claim.taskId === '1')?.verdict.state).toBe('verified')
+})

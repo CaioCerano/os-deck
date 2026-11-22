@@ -300,6 +300,8 @@ export type ProofAttempt = {
   startedAt: number
   endedAt: number | null
   checks: ProofResult[]
+  /** A turn began and stopped it after it ran something: evidence, and the run is still owed. */
+  stopped?: boolean
 }
 
 /** A root a claimed task changed: each path with its hash at completion, null once deleted. */
@@ -325,7 +327,7 @@ export type ProofClaim = {
 }
 
 /** A person's press, bound to the revisions that were drawn. */
-export type ProofReview = { claim: string; revisions: { root: string; revision: string }[]; at: number }
+export type ProofReview = { claim: string; /** The claim's own time: another process numbers claims again. */ claimAt?: number; revisions: { root: string; revision: string }[]; at: number }
 
 /**
  * Agent Proof's session state, and the only evidence: nothing read from the store is put here except
@@ -377,6 +379,8 @@ export type ProofWork = {
       overlap: string[]
       /** Whose edits were seen meanwhile: an agent's id, or '' for the main loop. */
       editors: string[]
+      /** Back to pending: what it saw stands, and it has no baseline until it starts again. */
+      waiting?: boolean
     }[]
     descriptions: [taskId: string, text: string][]
   }

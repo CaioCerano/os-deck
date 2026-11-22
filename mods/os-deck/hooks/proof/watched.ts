@@ -138,6 +138,14 @@ export function openDisk($: EngineInterface, root: string): Disk {
     return { kind: 'absent' }
   }
 
+  const readBytes = async (at: string, is: { size: number; mtimeMs?: number }): Promise<DiskFile> => {
+    if (is.size > MAX_BYTES) return problem('it is too large to read whole')
+    const { base64 } = await $.fs.read(placeOf(at), { as: 'bytes', length: MAX_BYTES + 1 })
+    const bytes = Uint8Array.from(atob(base64), ch => ch.charCodeAt(0))
+    if (bytes.length > MAX_BYTES) return problem('it is too large to read whole')
+    return { kind: 'file', bytes, hash: await sha256(bytes), stamp: `${is.size}:${is.mtimeMs}` }
+  }
+
   /** All that a program's name can start in one folder: the name, with any extension or none. */
   const readPrograms = async (path: string): Promise<DiskFile> => {
     const cut = path.lastIndexOf('/')
@@ -153,15 +161,19 @@ export function openDisk($: EngineInterface, root: string): Disk {
     for (const entry of entries) {
       const key = keyOf(entry.name)
       if (key !== name && !key.startsWith(`${name}.`)) continue
-      const at = joined(folder.at, entry.name)
+      const at = folder.at.endsWith('/') ? `${folder.at}${entry.name}` : joined(folder.at, entry.name)
       if (entry.isLink) {
-        // npm installs these as links off Windows: where one leads is what it is.
-        const { realPath } = await $.fs.stat(placeOf(at), { resolve: true })
-        if (!realPath) return problem('where its link leads cannot be told')
-        found.push([entry.name, `link ${realPath}`, realPath])
+        // npm installs these as links off Windows: where one leads, and the bytes there, are what it is.
+        const to = await $.fs.stat(placeOf(at), { resolve: true })
+        const { realPath } = to
+        if (!realPath || /^[\\/]{2}/.test(realPath) || to.kind !== 'file') return problem('where its link leads cannot be told')
+        const read = await readBytes(at, to)
+        if (read.kind !== 'file') return read
+        found.push([entry.name, `link ${realPath} ${read.hash}`, `${realPath} ${read.stamp}`])
         continue
       }
-      const read = await readFile(at)
+      // By the entry, not by its path: that could be this pattern again, or a step above the root.
+      const read = entry.kind === 'file' ? await readBytes(at, entry) : { kind: 'absent' as const }
       if (read.kind === 'problem') return read
       found.push(read.kind === 'file' ? [entry.name, read.hash, read.stamp] : [entry.name, entry.kind, ''])
     }
@@ -180,12 +192,7 @@ export function openDisk($: EngineInterface, root: string): Disk {
       const { at, entry } = found
       if (entry.kind === 'dir') return { kind: 'absent' }
       if (entry.kind !== 'file') return problem('it is no regular file')
-      if (entry.size > MAX_BYTES) return problem('it is too large to read whole')
-      const { base64 } = await $.fs.read(placeOf(at), { as: 'bytes', length: MAX_BYTES + 1 })
-      const bytes = Uint8Array.from(atob(base64), ch => ch.charCodeAt(0))
-      if (bytes.length > MAX_BYTES) return problem('it is too large to read whole')
-      const hash = await sha256(bytes)
-      return { kind: 'file', bytes, hash, stamp: `${entry.size}:${entry.mtimeMs}` }
+      return await readBytes(at, entry)
     } catch {
       return problem('it cannot be read')
     }

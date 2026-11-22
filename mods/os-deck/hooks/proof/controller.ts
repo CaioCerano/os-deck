@@ -9,7 +9,7 @@ import { redact } from '../redact'
 import { runAttempt } from './attempt'
 import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
-import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, withdrawClaims } from './lifecycle'
+import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, waitTask, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofActions, ProofViewModel } from './model'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
@@ -172,7 +172,7 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     }
     if (was?.status === is.status) return
     // Back to waiting: what is done until it starts again is not its work.
-    if (is.status === 'pending') await ops.setWork(w => (w.session === session ? { ...w, tracking: dropTask(w.tracking, x.taskId) } : w))
+    if (is.status === 'pending') await ops.setWork(w => (w.session === session ? { ...w, tracking: waitTask(w.tracking, x.taskId) } : w))
     const roots = p.allowed.map(a => a.grant.root)
     if (is.status !== 'in_progress' && is.status !== 'completed') return
 
@@ -272,7 +272,8 @@ export function proofEditStarted(id: string, x: { tool: string; input: Record<st
 
 /** That call over, and whatever it did noted. */
 export function proofEditSettled(id: string): void {
-  editing.delete(id)
+  // Through the queue, after its note: a completion already waiting there still finds it under way.
+  if (editing.has(id)) void inOrder(async () => void editing.delete(id)).catch(() => undefined)
 }
 
 /** Any other tool's call, done: whether it can have changed the content, and the file it named. */
@@ -335,9 +336,12 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
       },
       onProgress: record,
     })
+    const ranSome = 'attempt' in got && got.tails.length > 0
     const hasFailed = 'attempt' in got && got.attempt.checks.some(r => r.execution === 'exited' && (r.exitCode !== 0 || (r.count?.failed ?? 0) > 0))
-    if (stoppedForTurn && !signal.cancelled && !hasFailed) {
-      // A turn began: what it stopped was no attempt, and the run is still owed.
+    // A turn began. What saw something stays as what was seen last, or an older green would come back;
+    // only what started nothing was no attempt. Either way the run is still owed.
+    if (stoppedForTurn && !signal.cancelled && !hasFailed && ranSome && 'attempt' in got) await record({ ...got.attempt, stopped: true })
+    if (stoppedForTurn && !signal.cancelled && !ranSome) {
       await ops.setProof(p => ({ ...p, attempts: p.attempts.filter(a => a.id !== id) }))
     } else if ('attempt' in got) {
       for (const [check, text] of got.tails) tails.set(`${check}\n${root}`, text)
@@ -493,9 +497,8 @@ export async function proofCommand($: EngineInterface, ops: ProofOps, args: stri
     if (!root) return 'OS-Deck proof: no repository here.'
     const { attempts, claims, reviews } = await loadRecords($, root)
     const when = (at: number) => new Date(at).toLocaleString()
-    // Ids are numbered again by another process: a review is of the last claim of its id before it.
-    const reviewed = (claim: ProofClaim) =>
-      reviews.some(r => r.claim === claim.id && r.at >= claim.at && !claims.some(later => later.id === claim.id && later.at > claim.at && later.at <= r.at))
+    // Ids are numbered again by another process, so a review names its claim's time as well.
+    const reviewed = (claim: ProofClaim) => reviews.some(r => r.claim === claim.id && r.claimAt === Math.floor(claim.at))
     const lines = [
       ...attempts.slice(-10).reverse().map(a => `${when(a.startedAt)}  ${pastLabel(a)}  ${a.checks.map(c => c.id).join(', ')}`),
       ...claims.slice(-10).reverse().map(c => {
@@ -641,9 +644,10 @@ export async function pressBaseline($: EngineInterface, ops: ProofOps, root: str
 
 export async function pressReview($: EngineInterface, ops: ProofOps, claim: string, revisions: { root: string; revision: string }[]): Promise<void> {
   const session = await currentSession($, ops)
-  if (revisions.length === 0 || !(await ops.proof()).claims.some(c => c.id === claim && c.session === session && !c.withdrawn)) return
-  const review = { claim, revisions, at: await $.clock.now() }
-  await ops.setProof(p => (p.session === session ? { ...p, reviews: [...p.reviews.filter(r => r.claim !== claim), review].slice(-MAX_KEPT) } : p))
+  const claimed = (await ops.proof()).claims.find(c => c.id === claim && c.session === session && !c.withdrawn)
+  if (revisions.length === 0 || !claimed) return
+  const review = { claim, claimAt: Math.floor(claimed.at), revisions, at: await $.clock.now() }
+  await ops.setProof(p => (p.session === session ? { ...p, reviews: [...p.reviews.filter(r => r.claim !== claim), review].slice(-MAX_CLAIMS) } : p))
   await noteSaved(ops, await saveReview($, revisions[0]?.root ?? '', review))
 }
 
