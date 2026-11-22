@@ -7,6 +7,7 @@
 - **Corrigido um Verified falso da 0.5.0.** Numa pasta do Windows que diferencia maiúsculas, uma edição numa pasta vizinha que só muda na caixa (`Repo` ao lado de `repo`) contava como dentro do repositório liberado. Agora ela fica fora, e a tarefa aparece como Inconclusive.
 - **Corrigidos mais dois do mesmo tipo:** um check com caminho completo para a pasta vizinha rodava o arquivo de lá, e um repositório com o worktree do git apontado para ela podia continuar Verified.
 - **Um caminho com outras maiúsculas nunca passa pelo mesmo arquivo** na leitura dos checks, e não só no arquivo executado e no `package.json`.
+- **Uma edição também é localizada antes de escrever,** então uma pasta religada antes de a ferramenta terminar não esconde mais uma edição externa.
 - **Uma edição feita enquanto a pasta do repositório está trocada por um link** fica fora dele.
 - Uma pasta tem uma única liberação, quaisquer que sejam as maiúsculas: liberar de novo, inclusive depois de mudar só as maiúsculas, substitui a anterior.
 - O histórico e as sugestões de checks salvas na 0.5.0 não aparecem: um repositório agora é guardado pela grafia exata.

@@ -1361,3 +1361,18 @@ test('os-review: what runs under a replaced allowance is cancelled and records n
   expect(now.w.p.allowed.map(a => a.grant.root)).toEqual(['C:/runs'])
   expect(old.w.p.attempts.map(a => a.endedAt)).toEqual([null])
 })
+
+for (const [named, before] of [['C:/notes/x.md', 'C:/notes/x.md'], ['C:/repo/sub/x.md', 'C:/elsewhere/x.md']] as const)
+  test(`R3: relinked between its write and its return, an edit is where it ran: ${named}`, async () => {
+    const { w, $, ops, allow, task } = world('C:/repo')
+    await allow()
+    await task('1', 'in_progress')
+    const call = { tool: 'Write', input: { file_path: named }, agentId: null }
+    w.links = { [named]: before }
+    await proof.proofEditRuns($, ops, call)
+    w.links = { [named]: 'C:/repo/sub/x.md' }
+    await proof.proofToolDone($, ops, { ...call, hasFailed: false })
+    w.files['a.ts'] = 'two'
+    await task('1', 'completed')
+    expect(w.p.claims[0]?.outside.length).toBe(1)
+  })

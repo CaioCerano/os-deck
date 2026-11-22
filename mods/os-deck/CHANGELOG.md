@@ -7,6 +7,7 @@
 - **Fixed a false Verified in 0.5.0.** In a Windows folder with case sensitivity on, an edit to a folder one case apart from an allowed repository (`Repo` beside `repo`) counted as inside it. Such an edit is now outside, and the task reads Inconclusive.
 - **Fixed two more of the same kind:** a check given a full path into the twin folder ran that folder's file, and a repository whose git worktree was set to the twin could stay Verified.
 - **A path in other capitals is never taken for the same file** when checks are read, not only for the file run and `package.json`.
+- **An edit is placed before it writes as well,** so a folder relinked before the tool returns no longer hides an outside edit.
 - **An edit made while the repository's folder is swapped for a link** is outside it.
 - A folder has one allowance whatever its capitals: allowing it again, after a rename by capitals too, replaces the one before.
 - History and saved check suggestions from 0.5.0 are not shown: a repository is now kept under its exact spelling.

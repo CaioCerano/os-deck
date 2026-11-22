@@ -119,7 +119,7 @@ import { DEFAULT_GITHUB, GITHUB_FRESH_MS, checksLine, readGithub } from './githu
 import { phaseProgress, planEta, turnsLine, turnsToFull, withReading } from './forecast'
 import { flushHistory, historyReport, inTurn, loadHistory, pruneHistory, recordDay, sessionKeysIn } from './history'
 import { gitRead, readRepoState } from './safe-git'
-import { proofActions, proofCommand, proofEditSettled, proofEditStarted, proofSessionEnded, proofSessionStarted, proofTaskTool, proofToolDone, proofTurnEnded, proofTurnStarted } from './proof/controller'
+import { proofActions, proofCommand, proofEditRuns, proofEditSettled, proofEditStarted, proofSessionEnded, proofSessionStarted, proofTaskTool, proofToolDone, proofTurnEnded, proofTurnStarted } from './proof/controller'
 import { isProofOn, proofDock, unposed } from './proof/dock'
 import { unsupportedHere } from './proof/names'
 import type { Section } from './proof/view'
@@ -1314,6 +1314,7 @@ export const register: Register = (on, options) => {
   // when the tool finishes.
   on('tool.run', async ($, e, next) => {
     await quietly($, 'ask settle', async () => void (await settleAsk($, e.tool_use_id, true)))
+    await quietly($, 'proof edit', () => proofEditRuns($, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, agentId: e.agentId ?? null }))
     return next(e)
   })
 

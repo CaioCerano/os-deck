@@ -217,9 +217,17 @@ async function stillThere($: EngineInterface, claim: ProofClaim): Promise<boolea
 /** The file tools' calls under way, noted on the tasks open now. */
 async function noteEditing($: EngineInterface, ops: ProofOps, session: string, roots: readonly string[]): Promise<void> {
   for (const { path, editor } of [...editing.values()]) {
-    const landed = await placeEdit($, roots, path)
-    await ops.setWork(w => (w.session === session ? { ...w, tracking: noteEdit(w.tracking, landed, editor) } : w))
+    await noteLanded(ops, session, await placeEdit($, roots, path), editor)
   }
+}
+
+const noteLanded = (ops: ProofOps, session: string, path: string, editor: string) =>
+  ops.setWork(w => (w.session === session && w.tracking.open.length > 0 ? { ...w, tracking: noteEdit(w.tracking, path, editor) } : w))
+
+/** The file a file tool's call names; null for any other. */
+const editedIn = (x: { tool: string; input: Record<string, unknown> }): string | null => {
+  const path = EDIT_TOOLS.has(x.tool) ? (x.input.file_path ?? x.input.notebook_path) : null
+  return typeof path === 'string' ? path : null
 }
 
 /** An edit's path as a tool named it, to where it lands; one that cannot be placed is inside no root. */
@@ -276,7 +284,7 @@ export async function proofToolRan($: EngineInterface, ops: ProofOps, editedPath
     void inOrder(async () => {
       if ((await ops.work()).tracking.open.length === 0) return
       const path = await placeEdit($, (await ops.proof()).allowed.map(a => a.grant.root), editedPath)
-      await ops.setWork(w => (w.session === session ? { ...w, tracking: noteEdit(w.tracking, path, editor) } : w))
+      await noteLanded(ops, session, path, editor)
     }).catch(() => undefined)
   }
   refreshSoon($, ops)
@@ -298,9 +306,22 @@ export async function proofTaskTool(
 
 /** A tool's call as it begins. No state, no wait. */
 export function proofEditStarted(id: string, x: { tool: string; input: Record<string, unknown>; agentId: string | null }): void {
-  if (!EDIT_TOOLS.has(x.tool)) return
-  const path = x.input.file_path ?? x.input.notebook_path
-  if (typeof path === 'string') editing.set(id, { path, editor: x.agentId ?? '' })
+  const path = editedIn(x)
+  if (path) editing.set(id, { path, editor: x.agentId ?? '' })
+}
+
+/**
+ * That call allowed, its write next: where it lands now, as by its return a folder it names can lead
+ * elsewhere. Never sooner: resolving follows links, a share's as well, and a person may refuse the call.
+ */
+export async function proofEditRuns($: EngineInterface, ops: ProofOps, x: { tool: string; input: Record<string, unknown>; agentId: string | null }): Promise<void> {
+  const named = editedIn(x)
+  if (!named) return
+  const { allowed, session } = await ops.proof()
+  if (allowed.length === 0) return
+  const path = await placeEdit($, allowed.map(a => a.grant.root), named)
+  // In the tasks' order, and not waited for: a tool waits for no reading of a repository.
+  void inOrder(() => noteLanded(ops, session, path, x.agentId ?? '')).catch(() => undefined)
 }
 
 /** That call over, and whatever it did noted. */
@@ -318,8 +339,7 @@ export async function proofToolDone(
   const isEdit = EDIT_TOOLS.has(x.tool)
   // A failed shell call can have changed files too, and an MCP tool writes as it likes.
   if (!isEdit && x.tool !== 'Bash' && x.tool !== 'PowerShell' && !x.tool.startsWith('mcp__')) return
-  const path = isEdit && !x.hasFailed ? (x.input.file_path ?? x.input.notebook_path) : null
-  await proofToolRan($, ops, typeof path === 'string' ? path : null, x.agentId)
+  await proofToolRan($, ops, x.hasFailed ? null : editedIn(x), x.agentId)
 }
 
 // ---------------------------------------------------------------- runs

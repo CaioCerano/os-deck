@@ -253,3 +253,22 @@ for (const cwd of ['/repo', '/Users/someone/repo', '\\\\host\\share\\repo'])
     expect(text).not.toContain('proof-allow')
     expect([seen.git, seen.spawned.length, listed]).toEqual([0, 0, 0])
   })
+
+test('R3: the hook places an edit as it runs, before any return', { timeoutMs: 30_000 }, async ($, on) => {
+  on('tool.run', (_$, x) => ({ result: String(x.tool) === 'TaskCreate' ? { task: { id: '1' } } : { success: true } }) as never)
+  const w = world(on)
+  await $.command.run(command('proof setup'))
+  await press($, keyLike(await drawn($), 'proof-allow'))
+  await $.turn.start({ text: 'go', turnId: 'R3' })
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Change a', description: 'd', tool_use_id: 'r1' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress', tool_use_id: 'r2' } as never)
+  await $.tool.run({ tool: 'Write', file_path: 'C:/notes/x.md', content: 'x', tool_use_id: 'r3' } as never)
+  w.files['a.ts'] = 'two'
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed', tool_use_id: 'r4' } as never)
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'R3', reason: 'answer' } as never)
+  await w.clock.advance(600)
+  await pause(200)
+  await press($, keyLike(await drawn($), 'proof-baseline'))
+  // The row says which; why is drawn once it is opened.
+  expect(await drawn($)).toContain('? inconclusive')
+})

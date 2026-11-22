@@ -2,7 +2,7 @@
 
 [English](README.md) · **Português**
 
-**719 testes automatizados** (692 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
+**722 testes automatizados** (695 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
 
 ![O mascote do os-deck mudando de estado: pensando, lendo, editando, rodando um comando, subagentes, esperando seu ok, falhando, compactando, pronto, parado e dormindo](docs/media/mascot-states.gif)
 
@@ -24,7 +24,7 @@ O os-deck saiu do [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.
 | **[Previsões](#alertas-e-previsões)** | Turnos até o contexto encher, tempo restante do plano |
 | **Histórico** | Turnos, tempo, tarefas, subagentes, custo e espera por dia, entre sessões (`/os-deck today`, `/os-deck history`) |
 | **Plano, git e Jira** | Tarefas em árvore por fase com seus subagentes, o estado de cada repositório, o épico do Jira |
-| **Testes** | 692 testes novos, além de 27 mantidos dos 28 do Flightdeck |
+| **Testes** | 695 testes novos, além de 27 mantidos dos 28 do Flightdeck |
 
 ## Autor
 
@@ -137,6 +137,7 @@ O que saber antes de apertar allow:
 - Um check de npm é recusado sob um workspace de uma pasta acima, que emprestaria a ele uma config que ninguém viu.
 - Um check de npm é recusado quando o nome de uma pasta tem o caractere que separa as entradas do PATH (`;` no Windows), que mandaria o npm para outra pasta.
 - Uma edição só conta como dentro de um repositório quando a ferramenta a nomeou com caminho completo. Uma relativa, sem drive ou com `~` conta como fora: não se sabe de qual pasta ela foi resolvida.
+- Uma edição é localizada quando começa a rodar e de novo quando termina, e a que rodou conta mesmo se falhou. Um processo que move pastas ou links durante a própria escrita ainda pode esconder onde ela caiu.
 - Uma edição ainda rodando, ou esperando a sua permissão, quando uma tarefa termina conta como dessa tarefa, mesmo se for negada depois.
 - Um check que já começou quando você inicia outro turno termina; nenhum começa depois disso.
 - Uma alegação que você nunca revisou, mesmo substituída ou reaberta depois, mantém o repositório dela em "to review" pela sessão (as últimas 1.000 alegações). Só a mais nova tem botão.
@@ -248,7 +249,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Versão do Claude Code validada
 
-2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.5.1 passou nos seus 719 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
+2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.5.1 passou nos seus 722 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
 
 ## Licença
 
