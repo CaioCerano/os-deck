@@ -208,12 +208,6 @@ export const rootsToRun: Lifecycle['rootsToRun'] = x => {
   return owed
 }
 
-export const changedWatched: Lifecycle['changedWatched'] = (allowed, now) => {
-  // One absent is watched under a guessed spelling, and appears under the disk's.
-  const present = new Set([...now.keys()].map(path => path.toLowerCase()))
-  return allowed.filter(([path, hash]) => (hash === null ? present.has(path.toLowerCase()) : now.get(path) !== hash)).map(([path]) => path)
-}
-
 // ---------------------------------------------------------------- for the review
 
 const TEST_FOLDER = /(?:^|\/)(?:(?:[^/]*[._-])?tests?|__tests__|__mocks__|__snapshots__|specs?|e2e|testing|testdata|fixtures|cypress|gut|gdunit4)\//

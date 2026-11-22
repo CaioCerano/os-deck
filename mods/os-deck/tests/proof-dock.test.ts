@@ -38,7 +38,11 @@ const world = (on: On) => {
     return { value: entries } as never
   })
   on('fs.stat', (_$, e) => ({ value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: (e as unknown as { path: string }).path } }) as never)
-  on('fs.read', (_$, e) => ({ value: files[String((e as unknown as { path: string }).path).split(/[\\/]/).pop() ?? ''] ?? '' }) as never)
+  on('fs.read', (_$, e) => {
+    const x = e as unknown as { path: string; as?: string; options?: { as?: string } }
+    const text = files[String(x.path).split(/[\\/]/).pop() ?? ''] ?? ''
+    return { value: (x.as ?? x.options?.as) === 'bytes' ? { base64: btoa(String.fromCharCode(...new TextEncoder().encode(text))) } : text } as never
+  })
   on('process.run', (_$, e) => {
     const x = e as unknown as { argv: string[]; stdin?: string; init?: { stdin?: string } }
     const ok = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false } }) as never
@@ -194,4 +198,20 @@ test('M7: the classic view does not send a person to a button it has not', { opt
   world(on)
   const out = await $.command.run(command('proof setup'))
   expect(out.text).toContain('plan view')
+})
+
+test('H1: config that changes what a runner runs is on the screen', async ($, on) => {
+  const { files } = world(on)
+  files['.npmrc'] = 'loglevel=silent\n'
+  await $.command.run(command('proof setup'))
+  const text = await drawn($)
+  for (const part of ['.npmrc', 'loglevel=silent']) expect(text).toContain(part)
+})
+
+test('H2: where what runs cannot be resolved there is no automatic allow', async ($, on) => {
+  world(on)
+  await $.command.run(command('proof check lint -- cargo check'))
+  const text = await drawn($)
+  expect(text).toContain('"key":"proof-manual')
+  expect(text).not.toContain('"key":"proof-allow')
 })

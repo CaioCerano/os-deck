@@ -24,6 +24,7 @@ const world = (ROOT = '/repo') => {
     agents: [] as { status: string }[],
     watching: 0,
     hold: null as Promise<void> | null,
+    ignored: [] as string[],
     links: {} as Record<string, string>,
     output: ' 3 pass\n 0 fail\nRan 3 tests across 1 file.\n',
     code: 0,
@@ -42,7 +43,7 @@ const world = (ROOT = '/repo') => {
     const ok = (stdout: string, exitCode = 0) => ({ exitCode, stdout, stderr: '', isStdoutTruncated: false })
     if (argv.includes('--show-toplevel')) return ok(`${ROOT}\n`)
     if (argv.includes('--git-path')) return ok('.git/info/exclude\n')
-    if (argv.includes('--stage')) return ok(Object.keys(files).sort().map(f => `100644 ${'a'.repeat(40)} 0\t${f}\0`).join(''))
+    if (argv.includes('--stage')) return ok(Object.keys(files).sort().filter(f => !w.ignored.includes(f)).map(f => `100644 ${'a'.repeat(40)} 0\t${f}\0`).join(''))
     if (argv.includes('hash-object')) return ok((init?.stdin ?? '').split('\n').filter(Boolean).map(f => `${hash(files[f] ?? '')}\n`).join(''))
     if (argv.includes('config') || argv.includes('HEAD')) return ok('', 1)
     return ok('')
@@ -77,7 +78,10 @@ const world = (ROOT = '/repo') => {
     fs: {
       list: async (path: string) =>
         path.toLowerCase() === ROOT.toLowerCase() ? [{ name: '.git', kind: 'dir', size: 0, isLink: false }, ...Object.keys(files).map(name => ({ name, kind: 'file', size: files[name]!.length, isLink: false }))] : [],
-      read: async (path: string) => files[path.slice(ROOT.length + 1)] ?? '',
+      read: async (path: string, options?: { as?: string }) => {
+        const text = files[path.slice(ROOT.length + 1)] ?? ''
+        return options?.as === 'bytes' ? { base64: btoa(String.fromCharCode(...new TextEncoder().encode(text))) } : text
+      },
       stat: async (path: string) => ({ kind: 'file', size: 1, mtimeMs: 0, isLink: false, realPath: w.links[path] ?? path }),
     },
     process: {
@@ -507,4 +511,23 @@ test('L2: the runs that use up claims are kept past a hundred', async () => {
   await proof.pressVerify($, ops, ROOT)
   await pause(80)
   expect(w.p.attempts.length).toBe(151)
+})
+
+test('C1: a file git ignores, appearing after allow, pauses and runs nothing', async () => {
+  const { w, allow, work, endTurn, view } = world()
+  await allow()
+  await work()
+  w.ignored = ['.npmrc']
+  w.files['.npmrc'] = 'loglevel=silent\n'
+  await endTurn()
+  expect(w.spawned).toEqual([])
+  expect((await view()).roots[0]?.paused).toEqual(['.npmrc'])
+})
+
+test('H2: what cannot be resolved is never automatic, whatever is pressed', async () => {
+  const { w, $, ops } = world()
+  await proof.proofCommand($, ops, 'check lint -- cargo check', true)
+  expect(w.p.draft?.manualOnly).toBeTruthy()
+  await proof.pressAllow($, ops, ROOT, w.p.draft?.digest ?? '', true)
+  expect(w.p.allowed[0]?.grant.auto).toBe(false)
 })

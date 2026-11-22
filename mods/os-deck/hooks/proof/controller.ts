@@ -6,9 +6,9 @@ import type { EngineInterface } from 'claude-code'
 import type { Plan, ProofAttempt, ProofCheck } from '../../types'
 import { redact } from '../redact'
 import { runAttempt } from './attempt'
-import { digestOf, grantFrom, watchedPaths } from './grant'
+import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
-import { changedWatched, completeTask, describeTask, dropTask, isClaimOf, noteEdit, rootsToRun, startTask, withEditors, withdrawClaims } from './lifecycle'
+import { completeTask, describeTask, dropTask, isClaimOf, noteEdit, rootsToRun, startTask, withEditors, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofViewModel } from './model'
 import { pastLabel, rootsNow } from './present'
 import { isLocalPath, readRevision, samePath } from './revision'
@@ -17,6 +17,7 @@ import type { CancelSignal } from './runner'
 import { detectChecks, draftFor, parseTypedCheck } from './setup'
 import { EMPTY_PROOF, EMPTY_WORK } from './state'
 import type { ProofOps } from './state'
+import { changedOnDisk } from './watched'
 
 /** How long a tool call waits for a content read; a read later than this is no baseline. */
 const READ_WAIT_MS = 1500
@@ -101,7 +102,11 @@ export async function refreshProof($: EngineInterface, ops: ProofOps): Promise<v
   if (allowed.length === 0) return
   const order = ++lastRead
   const at = await $.clock.now()
-  const reads = await Promise.all(allowed.map(a => readRoot($, a.grant.root)))
+  // What runs is read from the disk, and so even where git cannot read the content.
+  const [reads, changed] = await Promise.all([
+    Promise.all(allowed.map(a => readRoot($, a.grant.root))),
+    Promise.all(allowed.map(async a => ({ root: a.grant.root, paths: await changedOnDisk($, a.grant.root, a.watched) }))),
+  ])
   // Two reads can overlap: the one begun later stands.
   if (order < (applied.get(session) ?? 0)) return
   applied.set(session, order)
@@ -109,12 +114,7 @@ export async function refreshProof($: EngineInterface, ops: ProofOps): Promise<v
     ...w,
     seen: reads.map(r => ({ root: r.root, revision: r.manifest?.revision ?? null, files: r.manifest?.files ?? [], at, reason: r.reason })),
   }))
-  const paused: { root: string; paths: string[] }[] = []
-  for (const a of allowed) {
-    const manifest = reads.find(r => r.root === a.grant.root)?.manifest
-    const paths = manifest ? changedWatched(a.watched, new Map(manifest.files)) : ((await ops.proof()).paused.find(x => x.root === a.grant.root)?.paths ?? [])
-    if (paths.length > 0) paused.push({ root: a.grant.root, paths })
-  }
+  const paused = changed.filter(x => x.paths.length > 0)
   if (JSON.stringify(paused) !== JSON.stringify((await ops.proof()).paused)) await ops.setProof(p => (p.session === session ? { ...p, paused } : p))
 }
 
@@ -478,23 +478,13 @@ export async function pressAllow($: EngineInterface, ops: ProofOps, root: string
   if (!draft || draft.root !== root || draft.digest !== drawnDigest || !drawnDigest || draft.problem) return refuse('what was pressed is no longer what is shown')
   const start = await readRevision($, root)
   if (!start.ok) return refuse(`this repository cannot be verified: ${start.reason}`)
-  // Drafted again after the content was read, so the bodies shown are those whose hashes are watched.
+  // Read again only to refuse what moved: what is bound is the one reading that was drawn and hashed.
   const again = await draftFor($, root, draft.checks, draft.source)
   if (again.problem || again.digest !== drawnDigest) return refuse('the checks changed since they were shown')
   const at = await $.clock.now()
-  const made = await grantFrom({ session, root, checks: again.checks, scripts: again.scripts, drawnDigest, auto, at })
+  const made = await grantFrom({ session, root, checks: again.checks, scripts: again.scripts, watched: again.watched, files: again.files, manualOnly: again.manualOnly, drawnDigest, auto, at })
   if ('refused' in made) return refuse(made.refused)
-  // What a script body names is run as much as what the command names.
-  const behind = again.scripts.map(s => {
-    const check = again.checks.find(c => c.id === s.checkId) as ProofCheck
-    return { ...check, argv: s.body.split(/[\s;&|()"'`]+/).filter(Boolean) }
-  })
-  const paths = new Set(watchedPaths([...again.checks, ...behind], start.hashes, root))
-  // A check pointed at a folder runs the manifests inside it.
-  for (const check of again.checks)
-    for (const arg of check.argv)
-      for (const file of ['.claude-plugin/plugin.json', 'hooks/hooks.json']) if (start.hashes.has(`${arg}/${file}`)) paths.add(`${arg}/${file}`)
-  const watched = [...paths].map(path => [path, start.hashes.get(path) ?? null] as [string, string | null])
+  const { watched } = again
   let isAllowed = false
   await ops.setProof(p => {
     // Discarded, or replaced, while this was read.

@@ -1,0 +1,181 @@
+// What runs, by the bytes on the disk. It starts no process, git included, as it is read before any
+// press; it knows no ignore rule, as a file git does not list runs the same; and it follows no link.
+// What cannot be known is never "unchanged".
+import type { EngineInterface } from 'claude-code'
+
+import { isWindowsOddName } from './names'
+
+export type Watched = readonly (readonly [path: string, hash: string | null])[]
+
+export type WatchRead = {
+  /** Each path that could be read, with its hash; null where there is no file by that name. */
+  watched: [path: string, hash: string | null][]
+  /** Size and time of each file, to see one changed and put back. */
+  stamps: Map<string, string>
+  problems: [path: string, why: string][]
+}
+
+export type Entry = { name: string; kind: string; size: number; mtimeMs?: number; isLink: boolean }
+export type DiskFile = { kind: 'file'; bytes: Uint8Array; hash: string; stamp: string } | { kind: 'absent' } | { kind: 'problem'; why: string }
+
+/** The engine answers no read over 4 MiB, and one byte more has to be asked to see a file is larger. */
+const MAX_BYTES = 4 * 1024 * 1024 - 1
+
+/** A name as it is matched: programs load `Package.json` for `package.json` where the disk folds case. */
+export const keyOf = (path: string) => path.normalize('NFC').toLowerCase()
+export const joined = (dir: string, name: string) => (dir && name ? `${dir}/${name}` : dir || name)
+
+/** A step Windows would open as another name, or that is no name. */
+const isOddStep = (step: string) => step === '' || step === '.' || step === '..' || step.includes('\\') || isWindowsOddName(step) || /~\d/.test(step)
+
+/** A path as typed from a folder of the root, as one from the root. */
+export const pathFrom = (root: string, dir: string, value: string): { path: string } | 'outside' | 'unclear' => {
+  let v = value.replace(/\\/g, '/')
+  if (v === '') return 'unclear'
+  const top = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  const fold = (s: string) => (/^[A-Za-z]:/.test(top) ? s.toLowerCase() : s)
+  let steps = dir ? dir.split('/') : []
+  if (top && fold(`${v}/`).startsWith(`${fold(top)}/`)) {
+    v = v.slice(top.length + 1)
+    steps = []
+  } else if (/^(?:\/|[A-Za-z]:)/.test(v)) return 'outside'
+  let named = 0
+  for (const step of v.split('/')) {
+    if (step === '' || step === '.') continue
+    if (step === '..') {
+      // Back out of a step the value itself named: were that a link, two programs would read it as two places.
+      if (named > 0) return 'unclear'
+      if (steps.pop() === undefined) return 'outside'
+    } else if (isOddStep(step)) return 'unclear'
+    else {
+      steps.push(step)
+      named += 1
+    }
+  }
+  return { path: steps.join('/') }
+}
+
+export type Disk = {
+  /** A folder's entries; null where it is not a folder that can be read without following a link. */
+  list: (dir: string) => Promise<readonly Entry[] | null>
+  file: (path: string) => Promise<DiskFile>
+}
+
+/**
+ * The files under a root, each read once: what is parsed from a reading and what is hashed are the
+ * same bytes. One of these serves one reading, never two.
+ */
+export function openDisk($: EngineInterface, root: string): Disk {
+  const listings = new Map<string, Promise<readonly Entry[] | null>>()
+  const files = new Map<string, Promise<DiskFile>>()
+  const problem = (why: string): DiskFile => ({ kind: 'problem', why })
+
+  const entriesOf = (at: string) => {
+    const known = listings.get(at)
+    if (known) return known
+    const read = (async (): Promise<readonly Entry[] | null> => {
+      try {
+        return await $.fs.list(at ? `${root}/${at}` : root)
+      } catch {
+        return null
+      }
+    })()
+    listings.set(at, read)
+    return read
+  }
+
+  /** The entry a path names, each step a folder and no link, with the spelling the disk has. */
+  const find = async (path: string): Promise<{ at: string; entry: Entry } | DiskFile> => {
+    const steps = path.split('/')
+    let at = ''
+    for (let i = 0; i < steps.length; i++) {
+      const entries = await entriesOf(at)
+      if (!entries) return problem('its folder cannot be read')
+      const step = keyOf(steps[i] as string)
+      const found = entries.filter(x => keyOf(x.name) === step)
+      if (found.length > 1) return problem('two names differ only in case')
+      const entry = found[0]
+      if (!entry) return { kind: 'absent' }
+      if (entry.isLink) return problem('it is a link')
+      const here = joined(at, entry.name)
+      if (i === steps.length - 1) return { at: here, entry }
+      if (entry.kind === 'file') return { kind: 'absent' }
+      if (entry.kind !== 'dir') return problem('it is no regular file')
+      at = here
+    }
+    return { kind: 'absent' }
+  }
+
+  const readFile = async (path: string): Promise<DiskFile> => {
+    try {
+      if (path.split('/').some(isOddStep)) return problem('a path not understood')
+      const found = await find(path)
+      if (!('entry' in found)) return found
+      const { at, entry } = found
+      if (entry.kind === 'dir') return { kind: 'absent' }
+      if (entry.kind !== 'file') return problem('it is no regular file')
+      if (entry.size > MAX_BYTES) return problem('it is too large to read whole')
+      const { base64 } = await $.fs.read(`${root}/${at}`, { as: 'bytes', length: MAX_BYTES + 1 })
+      const bytes = Uint8Array.from(atob(base64), ch => ch.charCodeAt(0))
+      if (bytes.length > MAX_BYTES) return problem('it is too large to read whole')
+      const digest = await crypto.subtle.digest('SHA-256', bytes)
+      const hash = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+      return { kind: 'file', bytes, hash, stamp: `${entry.size}:${entry.mtimeMs}` }
+    } catch {
+      return problem('it cannot be read')
+    }
+  }
+
+  return {
+    async list(dir) {
+      if (dir === '') return entriesOf('')
+      if (dir.split('/').some(isOddStep)) return null
+      const found = await find(dir)
+      return 'entry' in found && found.entry.kind === 'dir' ? entriesOf(found.at) : null
+    },
+    file(path) {
+      const key = keyOf(path)
+      const known = files.get(key)
+      if (known) return known
+      const read = readFile(path)
+      files.set(key, read)
+      return read
+    },
+  }
+}
+
+/** Each path as an open disk has it. */
+export const readFrom = async (disk: Disk, paths: readonly string[]): Promise<WatchRead> => {
+  const out: WatchRead = { watched: [], stamps: new Map(), problems: [] }
+  const found = await Promise.all(paths.map(path => disk.file(path)))
+  found.forEach((file, i) => {
+    const path = paths[i] as string
+    if (file.kind === 'problem') out.problems.push([path, file.why])
+    else out.watched.push([path, file.kind === 'file' ? file.hash : null])
+    if (file.kind === 'file') out.stamps.set(path, file.stamp)
+  })
+  return out
+}
+
+/** The raw bytes of each path, as a hash. Never throws. */
+export async function readWatched($: EngineInterface, root: string, paths: readonly string[]): Promise<WatchRead> {
+  return readFrom(openDisk($, root), paths)
+}
+
+/**
+ * The paths that are not as they were. `since`, an earlier reading's stamps, also finds one that was
+ * written meanwhile and holds the same bytes again.
+ */
+export const changedSince = (watched: Watched, now: WatchRead, since?: ReadonlyMap<string, string>): string[] => {
+  const hashes = new Map(now.watched)
+  return watched.filter(([path, hash]) => hashes.get(path) !== hash || (since !== undefined && since.get(path) !== now.stamps.get(path))).map(([path]) => path)
+}
+
+/** The watched paths that differ on the disk, with whatever cannot be read counted as changed. Never throws. */
+export async function changedOnDisk($: EngineInterface, root: string, watched: Watched): Promise<string[]> {
+  try {
+    return changedSince(watched, await readWatched($, root, watched.map(([path]) => path)))
+  } catch {
+    return watched.map(([path]) => path)
+  }
+}

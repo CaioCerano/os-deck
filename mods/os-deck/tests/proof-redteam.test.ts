@@ -186,19 +186,6 @@ test('9: a script body other than the one drawn is refused', async () => {
   expect('grant' in (await press([lint], drawn, shown))).toBe(true)
 })
 
-test('10: what a check runs is watched, present or not yet', () => {
-  const files = new Map(['app/package.json', 'GNUmakefile', 'tests/run.sh', 'tools/x.js'].map(p => [p, 'h']))
-  const watch = (argv: string[], dir = '') => (grants.watchedPaths as (c: ProofCheck[], f: Map<string, string>, root?: string) => string[])([{ ...lint, argv, dir }], files, 'C:/repo')
-  expect(watch(['npm', '--prefix', 'app', 'test'])).toContain('app/package.json')
-  expect(watch(['npm', '-w', 'app', 'test'])).toContain('app/package.json')
-  expect(watch(['make', 'lint'])).toContain('GNUmakefile')
-  expect(watch(['node', 'C:/repo/tools/x.js'])).toContain('tools/x.js')
-  expect(watch(['node', '../tools/x.js'], 'app')).toContain('tools/x.js')
-  expect(watch(['bash', '-c', 'tests/run.sh --fast'])).toContain('tests/run.sh')
-  // Absent when allowed: appearing is a change.
-  expect(watch(['make', 'lint'])).toContain('Makefile')
-})
-
 // ---------------------------------------------------------------- 7, 11: the verdict
 
 const result = (over: Partial<ProofResult> = {}): ProofResult => ({ id: 'lint', kind: 'lint', description: '', execution: 'exited', source: 'os-deck-run', startedAt: 20, endedAt: 30, revision: 'A', exitCode: 0, count: null, summary: '', reason: null, ...over })

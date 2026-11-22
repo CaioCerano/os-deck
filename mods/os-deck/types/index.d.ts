@@ -344,6 +344,9 @@ export type ProofSession = {
     checks: ProofCheck[]
     digest: string
     scripts: { checkId: string; name: string; body: string }[]
+    watched: [path: string, hash: string | null][]
+    files: { path: string; body: string }[]
+    manualOnly: string | null
     problem: string | null
     source: 'detected' | 'saved' | 'typed'
   } | null

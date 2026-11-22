@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { changedWatched, completeTask, describeTask, dropTask, noteEdit, reviewWorthy, rootsToRun, startTask, withdrawClaims } from '../hooks/proof/lifecycle'
+import { completeTask, describeTask, dropTask, noteEdit, reviewWorthy, rootsToRun, startTask, withdrawClaims } from '../hooks/proof/lifecycle'
 import type { Manifest, Tracking } from '../hooks/proof/model'
 import { isReviewed, rootVerdict, taskVerdict } from '../hooks/proof/verdict'
 import type { RootNow, RootVerdict, Verdict } from '../hooks/proof/verdict'
@@ -869,26 +869,6 @@ test('work that cannot verify is still run', () => {
 })
 
 // ---------------------------------------------------------------- watched and for review
-
-test('a watched file edited or deleted is changed', () => {
-  const allowed: [string, string][] = [['package.json', 'p0'], ['tests/run.sh', 't0'], ['Makefile', 'm0']]
-  expect(changedWatched(allowed, new Map(allowed))).toEqual([])
-  expect(changedWatched(allowed, new Map([...allowed, ['other.ts', 'x']]))).toEqual([])
-  expect(changedWatched(allowed, new Map([['package.json', 'p1'], ['Makefile', 'm0']]))).toEqual(['package.json', 'tests/run.sh'])
-  expect(changedWatched(allowed, new Map())).toEqual(['package.json', 'tests/run.sh', 'Makefile'])
-})
-
-test('a file absent when allowed is changed as it appears, however the disk spells it', () => {
-  const allowed: [string, string | null][] = [['bunfig.toml', null], ['app/.npmrc', null], ['package.json', 'p0']]
-  const base: [string, string] = ['package.json', 'p0']
-  expect(changedWatched(allowed, new Map([base]))).toEqual([])
-  expect(changedWatched(allowed, new Map([base, ['bunfig.toml', 'b1']]))).toEqual(['bunfig.toml'])
-  expect(changedWatched(allowed, new Map([base, ['Bunfig.TOML', 'b1']]))).toEqual(['bunfig.toml'])
-  expect(changedWatched(allowed, new Map([base, ['App/.npmrc', 'n1']]))).toEqual(['app/.npmrc'])
-  expect(changedWatched(allowed, new Map([base, ['app/bunfig.toml', 'b1']]))).toEqual([])
-  // Keyed by the disk's spelling, so a new spelling is a change.
-  expect(changedWatched(allowed, new Map([['Package.json', 'p0']]))).toEqual(['package.json'])
-})
 
 test('a rename of case alone is a change, and holds', () => {
   const w = world()

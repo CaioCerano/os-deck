@@ -51,8 +51,6 @@ export type Lifecycle = {
     /** Roots with a run under way. */
     busy: readonly string[]
   }) => string[]
-  /** The watched paths whose content is not what was allowed. */
-  changedWatched: (allowed: readonly [path: string, hash: string | null][], now: ReadonlyMap<string, string>) => string[]
   /** The changed paths a person should look at: tests, scripts, test configuration. */
   reviewWorthy: (paths: readonly string[]) => string[]
 }
@@ -61,10 +59,16 @@ export type Lifecycle = {
 export type Draft = {
   root: string
   checks: ProofCheck[]
-  /** The offer's digest (checks, baselines, script bodies): what a press is bound to. */
+  /** The offer's digest (checks, baselines, script bodies, and the three below): what a press is bound to. Empty with a problem. */
   digest: string
   /** Package script bodies behind the checks, pre and post hooks included, exactly as written. */
   scripts: { checkId: string; name: string; body: string }[]
+  /** What the checks run, by the sha256 of its raw bytes as drawn; null where it was not there. */
+  watched: [path: string, hash: string | null][]
+  /** Config that can change what runs, whole. */
+  files: { path: string; body: string }[]
+  /** Why it may be run only by hand; null where it may run automatically. */
+  manualOnly: string | null
   /** Why it cannot be allowed as it stands; null where it can. */
   problem: string | null
   source: 'detected' | 'saved' | 'typed'

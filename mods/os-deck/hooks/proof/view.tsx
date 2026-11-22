@@ -631,11 +631,21 @@ export const setupDraft = (d: ProofDraw, draft: Draft | null): Section => {
   }
   // One that names no check drawn still runs.
   draft.scripts.filter(x => !draft.checks.some(c => c.id === x.checkId)).forEach(script)
+  for (const file of draft.files ?? []) {
+    const body = file.body.replace(/\r?\n$/, '')
+    const rows = body.split(/\r?\n/)
+    const isEscaped = rows.some(row => UNSHOWN.test(row) || row.endsWith(' '))
+    s.exact(`config ${shown(file.path)}${isEscaped ? ' (escaped)' : ''}:`, '')
+    for (const row of isEscaped ? [quoted(body)] : rows) s.exact(row, '│ ')
+  }
+  const watching = (draft.watched ?? []).length
+  if (watching > 0) s.say(`${watching} paths behind these checks are watched, ignored or not: a change pauses the checks`, { dim: true })
 
   s.say('checks run as you, outside permission prompts and the sandbox', { color: amber })
   s.say('they inherit your environment: known credential variables are blanked, the rest are not', { color: amber })
   s.say('processes a check leaves in the background may outlive it', { color: amber })
   s.say('not covered: ignored files, including new folders that ignore themselves', { color: amber })
+  s.say('not watched: imports, dependencies, tool config, what shell scripts call', { color: amber })
 
   const problem =
     draft.problem ??
@@ -646,15 +656,14 @@ export const setupDraft = (d: ProofDraw, draft: Draft | null): Section => {
     s.presses([discard])
     return s.section()
   }
-  s.say('After Allow, code agents write into tests runs automatically at the end of a turn, without a permission prompt.', { color: warn, bold: true })
+  if (draft.manualOnly) s.say(`manual only, as what runs cannot be told: ${safe(draft.manualOnly)}`, { color: warn, bold: true })
+  else s.say('After Allow, code agents write into tests runs automatically at the end of a turn, without a permission prompt.', { color: warn, bold: true })
   s.say('manual only: checks run when you press verify', { dim: true })
   s.say('either one lasts for this session', { dim: true })
   const { root, digest } = draft
-  s.presses([
-    { key: keyOf('allow', digest), label: 'allow', primary: true, beside: 'automatic', onPress: () => d.act.allow(root, digest, true) },
-    { key: keyOf('manual', digest), label: 'manual only', onPress: () => d.act.allow(root, digest, false) },
-    discard,
-  ])
+  const automatic: Press = { key: keyOf('allow', digest), label: 'allow', primary: true, beside: 'automatic', onPress: () => d.act.allow(root, digest, true) }
+  const manual: Press = { key: keyOf('manual', digest), label: 'manual only', onPress: () => d.act.allow(root, digest, false) }
+  s.presses(draft.manualOnly ? [manual, discard] : [automatic, manual, discard])
   return s.section()
 }
 

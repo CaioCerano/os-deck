@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { outcomeOf } from '../hooks/proof/checks'
 import { counterFor } from '../hooks/proof/counts'
-import { checkProblem, digestOf, grantFrom, offerDigest, mayRun, setupProblem, suggestedChecks, watchedPaths } from '../hooks/proof/grant'
+import { checkProblem, digestOf, grantFrom, offerDigest, mayRun, setupProblem, suggestedChecks } from '../hooks/proof/grant'
 import { KILL_WAIT_MS, cancelSignal, runCheck } from '../hooks/proof/runner'
 import type { ProofCheck } from '../types'
 
@@ -208,11 +208,6 @@ test('a forged store gives suggestions, never an allowance', () => {
   const out = suggestedChecks([{ ...check(), auto: true, session: 'S', digest: 'x' }, { ...check({ id: 'evil', argv: ['//host/x'] }) }, null, 'junk'])
   expect(out.length).toBe(1)
   expect(Object.keys(out[0] as object).sort()).toEqual(['argv', 'count', 'description', 'dir', 'id', 'kind', 'required', 'timeoutS'])
-})
-
-test('the files behind a check are watched', () => {
-  const files = new Map(['package.json', 'app/package.json', 'tests/run_all.sh', 'src/x.ts'].map(p => [p, 'h']))
-  expect(watchedPaths([check({ argv: ['bash', './tests/run_all.sh'] }), check({ id: 'lint', dir: 'app', argv: ['npm', 'run', 'lint'] })], files)).toEqual(expect.arrayContaining(['app/package.json', 'package.json', 'tests/run_all.sh']))
 })
 
 test('a child does not look for programs in the repository it runs in', async () => {

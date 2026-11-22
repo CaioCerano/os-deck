@@ -90,11 +90,21 @@ export const digestOf = (root: string, checks: readonly ProofCheck[]): Promise<s
 
 export type ShownScript = { checkId: string; name: string; body: string }
 
-/** The hash of all a press approves as drawn: what would run, the script bodies shown, and the counts that will judge it. */
-export const offerDigest = async (root: string, checks: readonly ProofCheck[], scripts: readonly ShownScript[]): Promise<string> =>
-  hashed(['offer', await digestOf(root, checks), checks.map(c => [c.count?.minPassed ?? null, c.count?.maxSkipped ?? null]), scripts.map(s => [s.checkId, s.name, s.body])])
+/** What else a press approves: the bytes of what runs, the config shown, and why it may only be run by hand. */
+export type Bound = {
+  watched?: readonly (readonly [path: string, hash: string | null])[]
+  files?: readonly { path: string; body: string }[]
+  manualOnly?: string | null
+}
 
-export type Press = {
+/** The hash of all a press approves as drawn: what would run, what is shown behind it, and the counts that will judge it. */
+export const offerDigest = async (root: string, checks: readonly ProofCheck[], scripts: readonly ShownScript[], bound: Bound = {}): Promise<string> =>
+  hashed([
+    'offer', await digestOf(root, checks), checks.map(c => [c.count?.minPassed ?? null, c.count?.maxSkipped ?? null]), scripts.map(s => [s.checkId, s.name, s.body]),
+    (bound.watched ?? []).map(([path, hash]) => [path, hash]), (bound.files ?? []).map(f => [f.path, f.body]), bound.manualOnly ?? null,
+  ])
+
+export type Press = Bound & {
   session: string
   root: string
   checks: readonly ProofCheck[]
@@ -107,15 +117,15 @@ export type Press = {
 
 /**
  * An allowance from a person's press, or why there is none: only for what was drawn when they pressed,
- * and only for this session. Automatic unless they chose manual.
+ * and only for this session. Automatic unless they chose manual, or what runs cannot be resolved.
  */
 export async function grantFrom(p: Press): Promise<{ grant: ProofGrant } | { refused: string }> {
   if (!p.session) return { refused: 'the session is not known' }
   const problem = setupProblem(p.root, p.checks)
   if (problem) return { refused: problem }
-  if ((await offerDigest(p.root, p.checks, p.scripts)) !== p.drawnDigest) return { refused: 'the checks changed since they were shown' }
+  if ((await offerDigest(p.root, p.checks, p.scripts, p)) !== p.drawnDigest) return { refused: 'the checks changed since they were shown' }
   const checks = p.checks.map(c => ({ ...c, argv: [...c.argv], ...(c.count ? { count: { ...c.count } } : {}) }))
-  return { grant: { session: p.session, root: p.root, checks, digest: await digestOf(p.root, checks), auto: p.auto !== false, at: p.at } }
+  return { grant: { session: p.session, root: p.root, checks, digest: await digestOf(p.root, checks), auto: p.auto !== false && !p.manualOnly, at: p.at } }
 }
 
 /** Whether a grant still allows running, asked again before every run. */
@@ -137,54 +147,4 @@ export const suggestedChecks = (stored: unknown): ProofCheck[] => {
     if (checkProblem(check) === null) out.push(check)
   }
   return out
-}
-
-const MANIFESTS = ['package.json', 'bunfig.toml', '.npmrc', 'tsconfig.json', 'Makefile', 'GNUmakefile']
-
-/** A path named from a folder of the root, as one from the root; null where it is outside. */
-const inRoot = (dir: string, value: string, root: string): string | null => {
-  let v = value.replace(/\\/g, '/')
-  const top = root.replace(/\\/g, '/').replace(/\/+$/, '')
-  let from = dir
-  if (top && v.toLowerCase().startsWith(`${top.toLowerCase()}/`)) {
-    v = v.slice(top.length + 1)
-    from = ''
-  } else if (/^(?:\/|[A-Za-z]:)/.test(v)) return null
-  const out: string[] = []
-  for (const step of [...(from ? from.split('/') : []), ...v.split('/')]) {
-    if (step === '' || step === '.') continue
-    if (step !== '..') out.push(step)
-    else if (out.pop() === undefined) return null
-  }
-  return out.join('/')
-}
-
-/**
- * The files whose change means a check no longer runs what was allowed: its manifests and what it
- * names. Those not there yet as well: appearing is a change.
- */
-export const watchedPaths = (checks: readonly ProofCheck[], files: ReadonlyMap<string, string>, root = ''): string[] => {
-  const out = new Map<string, string>()
-  const actual = new Map([...files.keys()].map(f => [f.toLowerCase(), f]))
-  const dirs = new Set<string>()
-  for (const path of files.keys()) for (let i = path.indexOf('/'); i > 0; i = path.indexOf('/', i + 1)) dirs.add(path.slice(0, i).toLowerCase())
-  const watch = (path: string) => void out.set(path.toLowerCase(), actual.get(path.toLowerCase()) ?? path)
-  const watchFolder = (dir: string) => {
-    for (const name of MANIFESTS) watch(dir ? `${dir}/${name}` : name)
-  }
-  for (const c of checks) {
-    watchFolder('')
-    if (c.dir) watchFolder(c.dir)
-    // Every word, and what follows an `=` in it: `--prefix=app`, `-c "tests/run.sh --fast"`.
-    for (const word of c.argv.flatMap(a => a.split(/[\s;]+/)).flatMap(w => (w.includes('=') ? [w, w.slice(w.indexOf('=') + 1)] : [w]))) {
-      if (!word || word.startsWith('-')) continue
-      for (const from of new Set([c.dir, ''])) {
-        const path = inRoot(from, word, root)
-        if (!path) continue
-        if (dirs.has(path.toLowerCase())) watchFolder(path)
-        else if (actual.has(path.toLowerCase()) || /^[\w./ -]+\.[A-Za-z0-9]{1,8}$/.test(path)) watch(path)
-      }
-    }
-  }
-  return [...out.values()].sort()
 }
