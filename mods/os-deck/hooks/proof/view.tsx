@@ -8,6 +8,7 @@ import type { Colors } from '../core'
 import { redact } from '../redact'
 import { outcomeOf } from './checks'
 import type { Draft, ProofActions, ProofViewModel, RootView, TaskView } from './model'
+import { UNSHOWN, quoted, unshowable } from './showable'
 import type { ProofState } from './verdict'
 
 export type ProofDraw = {
@@ -28,12 +29,9 @@ export type Mark = Section & { width: number }
 
 // Marks that read as verified are ours alone to draw.
 const PASS_MARKS = /[✓✔✅☑√🗸🟢🟩💚]/gu
-// A shown character is one cell and can be told from every other.
-const UNSHOWN = /[^ -~À-ÖØ-öø-ÿ]/u
 const BARE_ARG = /^[A-Za-z0-9À-ÖØ-öø-ÿ_@%+=:,./\\~-]+$/u
 // The engine refuses a whole pane for one of these.
 const UNDRAWABLE = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu
-const ESCAPED: Readonly<Record<string, string>> = { '\\': '\\\\', '"': '\\"', '\n': '\\n', '\r': '\\r', '\t': '\\t' }
 
 /** Agent or output text, on one line. */
 const safe = (text: string): string =>
@@ -42,9 +40,6 @@ const safe = (text: string): string =>
     .replace(UNDRAWABLE, '')
     .replace(PASS_MARKS, '*')
     .trim()
-
-const quoted = (text: string): string =>
-  `"${Array.from(text, ch => ESCAPED[ch] ?? (UNSHOWN.test(ch) ? `\\u{${(ch.codePointAt(0) ?? 0).toString(16)}}` : ch)).join('')}"`
 
 /** A path as it is, or escaped where a character of it would not show. */
 const shown = (text: string): string => (text === '' || UNSHOWN.test(text) ? quoted(text) : text)
@@ -565,19 +560,6 @@ export const proofNotices = (d: ProofDraw, vm: ProofViewModel): Section => {
 
 // ---------------------------------------------------------------- setup
 
-// Past these the engine cuts a tree's text, and then what is allowed was not all shown.
-const MAX_DRAFT_CHARS = 16_000
-const MAX_DRAFT_LINES = 400
-
-/** Whether redaction would show other words than these, its tidying of control characters aside. */
-const hasSecret = (text: string): boolean => {
-  const plain = text
-    .replace(/\r\n?/g, '\n')
-    .replace(/\t/g, ' ')
-    .replace(/[\p{Cc}\p{Cf}]/gu, ch => (ch === '\n' ? ch : ''))
-  return redact(plain) !== plain
-}
-
 const SOURCE: Readonly<Record<Draft['source'], string>> = {
   detected: 'found in this repository',
   saved: 'saved earlier: a suggestion, not a permission',
@@ -590,20 +572,6 @@ const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isS
 const baselineIn = ({ minPassed, maxSkipped }: ProofCountRule): { least: number; most: number } | 'none' | 'unreadable' => {
   if (minPassed === null || minPassed === 0) return 'none'
   return isCount(minPassed) && isCount(maxSkipped) ? { least: minPassed, most: maxSkipped } : 'unreadable'
-}
-
-/** Why what would run cannot be shown as it is; null where it can. */
-const unshowable = (draft: Draft): string | null => {
-  const texts = [
-    draft.root,
-    ...draft.checks.flatMap(c => [c.id, c.dir, ...c.argv]),
-    ...draft.scripts.flatMap(x => [x.name, x.body]),
-  ]
-  if (texts.reduce((n, t) => n + quoted(t).length, 0) > MAX_DRAFT_CHARS) return 'too long to show whole'
-  if (draft.scripts.reduce((n, x) => n + x.body.split('\n').length, 0) > MAX_DRAFT_LINES) return 'too long to show whole'
-  // An argument split from its flag is still read as one line.
-  if (texts.some(hasSecret) || draft.checks.some(c => hasSecret(c.argv.join(' ')))) return 'what looks like a secret'
-  return null
 }
 
 /** Everything a press would allow, whole, and then the presses. */
@@ -621,7 +589,7 @@ export const setupDraft = (d: ProofDraw, draft: Draft | null): Section => {
   const hidden = unshowable(draft)
   if (hidden) {
     // Nothing of it in part: a part read as the whole is what this screen is there to prevent.
-    if (draft.problem) s.say(`cannot be allowed: ${safe(draft.problem)}`, { color: warn })
+    if (draft.problem && draft.problem !== hidden) s.say(`cannot be allowed: ${safe(draft.problem)}`, { color: warn })
     s.say(`cannot be allowed: ${hidden}; its commands are not drawn`, { color: warn })
     s.presses([discard])
     return s.section()

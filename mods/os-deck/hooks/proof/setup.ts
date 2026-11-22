@@ -9,6 +9,7 @@ import { redact } from '../redact'
 import { checkProblem, offerDigest, setupProblem } from './grant'
 import type { Draft } from './model'
 import { isLocalPath } from './revision'
+import { unshowable } from './showable'
 
 const MAX_MANIFEST = 256 * 1024
 const MAX_TYPED = 1000
@@ -367,6 +368,7 @@ export async function draftFor($: EngineInterface, root: string, checks: readonl
       draft.scripts.push(...behind.scripts)
       if (behind.problem) problem ??= `${check.id}: ${behind.problem}`
     }
+    problem ??= unshowable(draft)
     // It may quote a name from the repository or the store.
     draft.problem = problem === null ? null : shorten(redact(problem), 200)
     // Last: it covers the bodies shown.

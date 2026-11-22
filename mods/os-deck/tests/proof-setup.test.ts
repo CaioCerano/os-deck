@@ -402,3 +402,13 @@ test('a draft of junk is a problem, never a throw', async () => {
   const made = await setup.draftFor(world({}).$, ROOT, [null] as unknown as ProofCheck[], 'saved')
   expect([made.problem, made.digest, made.source]).toEqual(['it could not be read', '', 'saved'])
 })
+
+test('what the screen would not draw whole is a problem of setup too', async () => {
+  // Each body is short enough alone; escaped, as they are drawn, the three are not.
+  const body = `jest ${chr(0x44f).repeat(900)}`
+  const long = await draftOf({ pretest: body, test: body, posttest: body })
+  expect(long.problem).toBe('too long to show whole')
+
+  const named = await setup.draftFor(world({ [`${SECRET}/a.test.ts`]: '' }).$, `${ROOT}/${SECRET}`, [check({ argv: ['bun', 'test'] })], 'detected')
+  expect(named.problem).toBe('what looks like a secret')
+})
