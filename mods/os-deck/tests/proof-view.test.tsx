@@ -883,3 +883,11 @@ test('M6: a secret in a path is not drawn', SWEEP, async ($, on) => {
   expect(wordsOf(drawn.tree)).not.toContain(token)
   await drawn.close()
 })
+
+test('N12: a withdrawn claim nobody reviewed leaves its root to review', SWEEP, async ($, on) => {
+  const vm = modelOf({ roots: [{ attempts: [attemptOf()] }], claims: [claimOf()], reviewed: true, closed: true } as never)
+  const gone = { ...(vm.tasks[0] as TaskView), claim: claimOf({ id: 'S:8:1', taskId: '8', withdrawn: true }), isReviewed: false }
+  const drawn = await stage($, on).show(everything({ ...vm, tasks: [...vm.tasks, gone] }), 80)
+  expect(wordsOf(drawn.tree)).not.toContain('verified · reviewed')
+  await drawn.close()
+})

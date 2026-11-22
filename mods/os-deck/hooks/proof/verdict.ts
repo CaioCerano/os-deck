@@ -31,7 +31,17 @@ export const rootVerdict = (f: RootFacts): RootVerdict => {
   }
   // Not from before this allowance. Where the last is, no earlier one stands in for it: that would keep
   // a green over the failure after it, were the clock set back.
-  if (!attempt || !(attempt.startedAt >= grant.at)) return { state: 'pending', reason: grant.auto ? 'runs when the turn ends' : 'press verify', attempt: null }
+  if (!attempt) return { state: 'pending', reason: grant.auto ? 'runs when the turn ends' : 'press verify', attempt }
+  if (!(attempt.startedAt >= grant.at)) {
+    // Only a failure is still said of it: that is never the looser answer.
+    const last = attempt
+    if (current && (current === last.before || current === last.after))
+      for (const check of grant.checks) {
+        const outcome = check.required ? outcomeOf(check, last.checks.find(r => r.id === check.id)) : null
+        if (outcome?.result === 'fail') return { state: 'failed', reason: `${check.id}: ${outcome.reason}`, attempt: last }
+      }
+    return { state: 'pending', reason: 'press verify', attempt: null }
+  }
   const is = (state: ProofState, reason: string): RootVerdict => ({ state, reason, attempt })
   if (attempt.endedAt === null && attempt.id === f.liveId) return is('verifying', 'checks are running')
   if (!current) return is('inconclusive', 'the content of this repository cannot be read')
@@ -45,7 +55,8 @@ export const rootVerdict = (f: RootFacts): RootVerdict => {
   // A failure is shown over anything less certain, on either state of the files it was seen on.
   const failed = results.find(x => x.outcome.result === 'fail')
   if (failed && (current === before || current === after)) return is('failed', `${failed.check.id}: ${failed.outcome.reason}`)
-  if (typeof attempt.endedAt !== 'number' || !Number.isFinite(attempt.endedAt) || !after) return is('inconclusive', 'the run was interrupted')
+  if (typeof attempt.endedAt !== 'number' || !Number.isFinite(attempt.endedAt)) return is('inconclusive', 'the run was interrupted')
+  if (!after) return is('inconclusive', checks.find(r => r.reason)?.reason ?? 'the run was interrupted')
   if (before !== after && current === after) return is('inconclusive', 'the files changed while the checks ran')
   if (current !== before || current !== after) return is('stale', failed ? 'changed since it failed' : 'changed since the checks ran')
   if (required.length === 0) return is('inconclusive', 'no check is required')

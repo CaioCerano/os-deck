@@ -283,7 +283,10 @@ export const proofSummary = (d: ProofDraw, vm: ProofViewModel): Section => {
     const runs: Run[] = []
     if (state === 'verified') {
       // One whose changes are not known could be of this root.
-      const own = tasks.filter(t => changedRoots(t).includes(root.root) || !t.claim.hasBaseline || changedRoots(t).length === 0)
+      // A claim withdrawn unreviewed changed the root all the same.
+      const own = vm.tasks.filter(t =>
+        changedRoots(t).includes(root.root) || (!t.claim.withdrawn && (!t.claim.hasBaseline || changedRoots(t).length === 0)),
+      )
       const open = own.filter(t => !t.isReviewed).length
       const isReviewed = own.length > 0 && open === 0
       const isNarrow = s.width < 50

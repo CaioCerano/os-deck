@@ -311,6 +311,8 @@ export type ProofClaim = {
   session: string
   taskId: string
   subject: string
+  /** The task's whole words, subject and group, by which its claim is known again. Session state alone. */
+  named?: string
   description: string
   agentId: string | null
   at: number

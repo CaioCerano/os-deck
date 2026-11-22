@@ -226,3 +226,14 @@ test('review 6: an agent cannot pose as verified by its title', { timeoutMs: 30_
   expect(text).toContain('checks · reviewed')
   expect(text).not.toContain('\u2713 checks')
 })
+
+test('M5: no mark that reads as a pass, and no letter that does not show, in a subject', async ($, on) => {
+  world(on)
+  await $.command.run(command('proof setup'))
+  const box = String.fromCodePoint(0x1f5f9)
+  const hidden = String.fromCodePoint(0x2060)
+  await $.tool.call({ tool: 'TaskCreate', subject: `Auth ${box} checks${hidden} · reviewed`, description: 'd', tool_use_id: 'm5' } as never)
+  const text = await drawn($)
+  expect(text).not.toContain(box)
+  expect(text).not.toContain(hidden)
+})

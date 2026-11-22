@@ -3,7 +3,7 @@
 // through one queue in the order they arrived; runs go through another, so neither waits on checks.
 import type { EngineInterface } from 'claude-code'
 
-import type { Plan, ProofAttempt, ProofCheck } from '../../types'
+import type { Plan, ProofAttempt, ProofCheck, ProofClaim } from '../../types'
 import { EDIT_TOOLS, shorten } from '../core'
 import { redact } from '../redact'
 import { runAttempt } from './attempt'
@@ -38,6 +38,8 @@ const queued = new Map<string, object>()
 const revoked = new Set<string>()
 /** The order reads began in, which no clock changes, and the last applied of each session. */
 let lastRead = 0
+/** Reads begun no later than this are of a session that is over. */
+let overBefore = 0
 const applied = new Map<string, number>()
 let shownLog: ProofViewModel['log'] = null
 let eventQueue: Promise<unknown> = Promise.resolve()
@@ -62,6 +64,7 @@ function cancelAll() {
     run.signal.cancel()
   }
   queued.clear()
+  overBefore = lastRead
   tails.clear()
   shownLog = null
 }
@@ -113,12 +116,13 @@ export async function refreshProof($: EngineInterface, ops: ProofOps): Promise<v
     Promise.all(allowed.map(async a => ({ root: a.grant.root, paths: await changedOnDisk($, a.grant.root, a.watched) }))),
   ])
   // Two reads can overlap: the one begun later stands.
-  if (order < (applied.get(session) ?? 0)) return
+  if (order <= overBefore || order < (applied.get(session) ?? 0)) return
   applied.set(session, order)
-  await ops.setWork(w => ({
-    ...w,
-    seen: reads.map(r => ({ root: r.root, revision: r.manifest?.revision ?? null, files: r.manifest?.files ?? [], at, reason: r.reason })),
-  }))
+  await ops.setWork(w =>
+    order <= overBefore || applied.get(session) !== order
+      ? w
+      : { ...w, seen: reads.map(r => ({ root: r.root, revision: r.manifest?.revision ?? null, files: r.manifest?.files ?? [], at, reason: r.reason })) },
+  )
   const paused = changed.filter(x => x.paths.length > 0)
   if (JSON.stringify(paused) !== JSON.stringify((await ops.proof()).paused)) await ops.setProof(p => (p.session === session && applied.get(session) === order ? { ...p, paused } : p))
 }
@@ -179,7 +183,8 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
     }
     const claims = (await ops.proof()).claims
     const { tracking } = await ops.work()
-    const done = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, agentId: x.agentId, helpers: is.agents, at, end: manifests, unread, roots, claims })
+    const done = completeTask(tracking, { session, taskId: x.taskId, subject: is.subject, group: is.group, agentId: x.agentId, helpers: is.agents, at, end: manifests, unread, roots, claims })
+    if (await stillThere($, done.claim)) done.claim = { ...done.claim, hasBaseline: false }
     await ops.setWork(w => ({ ...w, tracking: done.tracking }))
     // The new completion replaces what an earlier one claimed.
     await ops.setProof(s => (s.session === session ? { ...s, claims: [...withdrawClaims(s.claims, session, x.taskId), done.claim].slice(-MAX_CLAIMS) } : s))
@@ -190,6 +195,16 @@ export async function proofTaskChanged($: EngineInterface, ops: ProofOps, x: Tas
   let timer: { cancel: () => void } | null = null
   await Promise.race([job.catch(() => undefined), new Promise<void>(resolve => (timer = $.clock.after(READ_WAIT_MS, () => resolve())))])
   ;(timer as { cancel: () => void } | null)?.cancel()
+}
+
+/** Whether a path the claim has as gone is on the disk: ignored since, and so not seen, not deleted. */
+async function stillThere($: EngineInterface, claim: ProofClaim): Promise<boolean> {
+  const gone = claim.changes.flatMap(c => c.paths.filter(p => p.hash === null).map(p => `${c.root}/${p.path}`))
+  for (let i = 0; i < gone.length; i += 64) {
+    const found = await Promise.all(gone.slice(i, i + 64).map(path => $.fs.stat(path).then(st => st.kind === 'file', () => false)))
+    if (found.includes(true)) return true
+  }
+  return false
 }
 
 /** Where an edit landed, links followed, spelled from the allowed root it landed in. */
@@ -265,8 +280,11 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
       // An end that lands after a /clear, or after another allow, is nobody's evidence.
       if (p.session !== attempt.session || revoked.has(attempt.id)) return p
       const at = p.attempts.findIndex(a => a.id === attempt.id)
-      const attempts = at < 0 ? [...p.attempts, attempt].slice(-MAX_ATTEMPTS) : p.attempts.map((a, i) => (i === at ? attempt : a))
-      return { ...p, attempts }
+      if (at >= 0) return { ...p, attempts: p.attempts.map((a, i) => (i === at ? attempt : a)) }
+      // Of each root so many: one root's runs must not push out those that used up another's claims.
+      const ofRoot = p.attempts.filter(a => a.root === attempt.root)
+      const oldest = ofRoot.length >= MAX_ATTEMPTS ? ofRoot[0] : null
+      return { ...p, attempts: [...p.attempts.filter(a => a !== oldest), attempt] }
     })
   try {
     const got = await runAttempt($, {
@@ -279,11 +297,16 @@ async function runRoot($: EngineInterface, ops: ProofOps, root: string, trigger:
       isStillAllowed: async () => {
         const p = await ops.proof()
         const now = p.allowed.find(a => a.grant.root === root)?.grant
-        return !revoked.has(id) && p.session === session && (await $.session.id()) === session && now?.digest === grant.digest && now.at === grant.at
+        if (revoked.has(id) || p.session !== session || (await $.session.id()) !== session || now?.digest !== grant.digest || now.at !== grant.at) return false
+        // Before each spawn: an automatic one is of a turn that is over, under an allowance still automatic.
+        return trigger === 'manual' || (now.auto && (await ops.work()).turnEnded)
       },
       onProgress: record,
     })
-    if ('attempt' in got) {
+    if (trigger === 'auto' && !(await ops.work()).turnEnded && (!('attempt' in got) || got.tails.length === 0)) {
+      // The turn began before anything started: that was no attempt, and the run is still owed.
+      await ops.setProof(p => ({ ...p, attempts: p.attempts.filter(a => a.id !== id) }))
+    } else if ('attempt' in got) {
       for (const [check, text] of got.tails) tails.set(`${check}\n${root}`, text)
       await refreshProof($, ops)
       const ok = await saveAttempt($, got.attempt)

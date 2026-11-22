@@ -70,7 +70,9 @@ export async function runAttempt($: EngineInterface, q: AttemptRequest): Promise
         result = ran.result
         // Immediately after, by size and time as well: changed and put back ran all the same.
         changed = changedSince(q.watched, await readWatched($, grant.root, paths), first.stamps)
-        if (changed.length > 0) result = { ...result, execution: 'unavailable', exitCode: null, count: null, reason: CHANGED }
+        const hasFailed = result.execution === 'exited' && (result.exitCode !== 0 || (result.count?.failed ?? 0) > 0)
+        // A failure is never traded for the less certain answer.
+        if (changed.length > 0 && !hasFailed) result = { ...result, execution: 'unavailable', exitCode: null, count: null, reason: CHANGED }
         tails.push([check.id, ran.tail])
       }
       attempt = { ...attempt, checks: [...attempt.checks, result] }

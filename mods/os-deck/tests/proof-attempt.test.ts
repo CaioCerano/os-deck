@@ -238,3 +238,11 @@ test('once changed, nothing more runs, though it is all as it was by then', asyn
   expect(w.spawns()).toBe(1)
   expect(stateOf(q, got.attempt, got.attempt.before)).toBe('inconclusive')
 })
+
+test('N11: an attempt with no content after says why, where it is known', () => {
+  const why = 'what it runs changed during the attempt'
+  const grant = { session: 'S', root: '/repo', checks: [], digest: 'D', auto: true, at: 1 }
+  const result = { id: 'lint', kind: 'lint' as const, description: '', execution: 'unavailable' as const, source: 'os-deck-run' as const, startedAt: 2, endedAt: 3, revision: 'A', exitCode: null, count: null, summary: '', reason: why }
+  const attempt = { id: 'a', session: 'S', root: '/repo', digest: 'D', trigger: 'auto' as const, before: 'A', after: null, head: null, startedAt: 2, endedAt: 3, checks: [result] }
+  expect(rootVerdict({ root: '/repo', session: 'S', grant, current: 'B', attempts: [attempt], liveId: null }).reason).toBe(why)
+})

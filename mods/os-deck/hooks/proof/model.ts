@@ -19,7 +19,7 @@ export type Lifecycle = {
   dropTask: (t: Tracking, taskId: string) => Tracking
   completeTask: (
     t: Tracking,
-    x: { session: string; taskId: string; subject: string; agentId: string | null; helpers: readonly string[]; at: number; end: Manifest[]; unread: string[]; roots: string[]; claims: readonly ProofClaim[] },
+    x: { session: string; taskId: string; subject: string; group?: readonly string[]; agentId: string | null; helpers: readonly string[]; at: number; end: Manifest[]; unread: string[]; roots: string[]; claims: readonly ProofClaim[] },
   ) => { tracking: Tracking; claim: ProofClaim }
   withdrawClaims: (claims: readonly ProofClaim[], session: string, taskId: string) => ProofClaim[]
   /** The roots an automatic run is owed on, now that a turn ended with an answer. */

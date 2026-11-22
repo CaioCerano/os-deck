@@ -18,6 +18,8 @@ const MAX_OVERLAP = 16
 const MAX_DESCRIPTIONS = 200
 const MAX_TEXT = 2_000
 const MAX_SUBJECT = 200
+/** A task named in more than this is never known again, so its claim is never drawn. */
+const MAX_NAMED = 4_000
 const MAX_ID = 128
 
 /** Stands for the tasks there was no room to track. It never ends: when they would is not known. */
@@ -112,6 +114,12 @@ export const noteEdit: Lifecycle['noteEdit'] = (t, path, editor) => ({
 // The others keep its name in their overlap: that it worked meanwhile stays true.
 export const dropTask: Lifecycle['dropTask'] = (t, taskId) => ({ ...t, open: t.open.filter(o => o.taskId === UNTRACKED || o.taskId !== taskId) })
 
+/** All of a task's words: cut, a claim would pass to whatever was written after the cut. */
+const nameOf = (task: { subject: string; group: readonly string[] }): string | undefined => {
+  const named = JSON.stringify([redact(task.subject), task.group])
+  return named.length > MAX_NAMED ? undefined : named
+}
+
 /** Above every number seen, not the count: older claims are pruned, and a reused id would inherit a review. */
 const nextClaimId = (claims: readonly ProofClaim[], session: string, taskId: string) => {
   const prefix = `${session}:${taskId}:`
@@ -163,6 +171,7 @@ export const completeTask: Lifecycle['completeTask'] = (t, x) => {
       session: x.session,
       taskId: x.taskId,
       subject: redact(x.subject).slice(0, MAX_SUBJECT),
+      named: nameOf({ subject: x.subject, group: x.group ?? [] }),
       description: t.descriptions.find(([id]) => id === x.taskId)?.[1] ?? '',
       agentId: x.agentId,
       at: x.at,
@@ -178,13 +187,14 @@ export const withdrawClaims: Lifecycle['withdrawClaims'] = (claims, session, tas
   claims.map(c => (c.session === session && c.taskId === taskId && !c.withdrawn ? { ...c, withdrawn: true } : c))
 
 /** Whether a claim is of this task as it reads: an id can be renamed or used again. */
-export const isClaimOf = (claim: ProofClaim, task: { subject: string }) => claim.subject === redact(task.subject).slice(0, MAX_SUBJECT)
+export const isClaimOf = (claim: ProofClaim, task: { subject: string; group: readonly string[] }) =>
+  claim.named !== undefined && claim.named === nameOf(task)
 
 /**
  * Whether a task's claims no longer stand: an id is not a task, so deleted, reopened, renamed or used
  * again, what was claimed is claimed no longer, whatever the plan remembered of it.
  */
-export const endsClaims = (held: readonly ProofClaim[], now: { task: { status: string; subject: string } | undefined; created: boolean }) => {
+export const endsClaims = (held: readonly ProofClaim[], now: { task: { status: string; subject: string; group: readonly string[] } | undefined; created: boolean }) => {
   const { task, created } = now
   return held.length > 0 && (created || !task || task.status !== 'completed' || held.some(c => !isClaimOf(c, task)))
 }

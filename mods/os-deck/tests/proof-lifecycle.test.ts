@@ -160,7 +160,7 @@ test('work seen from its start, alone, and checked on that content is verified',
   w.write(APP, 'b.ts', null)
   w.write(APP, 'c.ts', 'c1')
   expect(w.complete('A')).toEqual({
-    id: 'S1:A:1', session: 'S1', taskId: 'A', subject: 'task A', description: 'fix the rounding', agentId: null, at: w.now, hasBaseline: true,
+    id: 'S1:A:1', session: 'S1', taskId: 'A', subject: 'task A', named: '["task A",[]]', description: 'fix the rounding', agentId: null, at: w.now, hasBaseline: true,
     changes: [{ root: APP, paths: [{ path: 'a.ts', hash: 'a1' }, { path: 'b.ts', hash: null }, { path: 'c.ts', hash: 'c1' }], overlap: [] }],
     outside: [], withdrawn: false,
   })

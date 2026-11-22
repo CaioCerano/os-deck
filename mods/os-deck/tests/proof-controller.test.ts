@@ -687,3 +687,104 @@ test('N14: tests that cannot be counted are not made required by detection', asy
   expect(w.p.draft?.checks.map(c => c.id)).toEqual(['typecheck'])
   expect(said).toContain('no way to count its tests')
 })
+
+// ---------------------------------------------------------------- what the second attack got past
+
+const long = `${String.fromCharCode(0x2800).repeat(200)}Fix a typo`
+const renamed: [name: string, after: Partial<Plan['tasks'][number]>][] = [
+  ['past the part a claim keeps', { subject: long.replace('Fix a typo', 'Rewrite auth') }],
+  ['by its group alone', { group: ['Rewrite auth, security audit'] }],
+]
+for (const [name, change] of renamed)
+  test(`N8: a task renamed ${name} keeps no claim`, async () => {
+    const { w, $, ops, allow } = world()
+    await allow()
+    const at = (status: TaskStatus, more: object = {}): Plan => ({ tasks: [{ ...planWith([{ id: '1', subject: long, status }]).tasks[0]!, ...more }] })
+    const changed = (before: Plan, after: Plan) => proof.proofTaskChanged($, ops, { before, after, taskId: '1', agentId: null, description: null })
+    await changed(at('pending'), at('in_progress'))
+    w.files['a.ts'] = 'two'
+    await changed(at('in_progress'), at('completed'))
+    expect(w.p.claims.map(c => c.withdrawn)).toEqual([false])
+    await changed(at('completed'), at('completed', change))
+    expect(w.p.claims.map(c => c.withdrawn)).toEqual([true])
+  })
+
+test('N9: a read begun before a clear never lands after it', async () => {
+  const { w, $, ops, allow } = world()
+  await allow(false)
+  let release = () => undefined as void
+  let reading = () => undefined as void
+  const held = new Promise<void>(done => (release = done))
+  const isReading = new Promise<void>(done => (reading = done))
+  const { run } = $.process
+  let armed = true
+  ;($ as unknown as { process: { run: unknown } }).process.run = async (...args: Parameters<typeof run>) => {
+    const got = await run(...args)
+    if (armed && (args[0] as string[]).includes('hash-object')) {
+      armed = false
+      reading()
+      await held
+    }
+    return got
+  }
+  const late = proof.refreshProof($, ops)
+  await isReading
+  await proof.proofSessionEnded(ops, 'clear')
+  w.session = `${w.session}-cleared`
+  release()
+  await late
+  expect(w.work.seen).toEqual([])
+})
+
+test('N10: a turn that begins as a run reads stops it, and it is still owed', async () => {
+  const { w, $, ops, allow, work, endTurn } = world()
+  await allow()
+  await work()
+  const { run } = $.process
+  ;($ as unknown as { process: { run: unknown } }).process.run = async (...args: Parameters<typeof run>) => {
+    if ((args[0] as string[]).includes('hash-object') && proof.liveRuns().size > 0) await proof.proofTurnStarted(ops)
+    return run(...args)
+  }
+  await endTurn()
+  expect(w.spawned).toEqual([])
+  ;($ as unknown as { process: { run: unknown } }).process.run = run
+  await endTurn()
+  expect(w.spawned.length).toBe(1)
+})
+
+test('N17: a changed file that became ignored is not a deletion', async () => {
+  const { w, allow, task, endTurn, accept, view } = world()
+  await allow()
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'two'
+  w.ignored = ['a.ts']
+  await task('1', 'completed')
+  await endTurn()
+  await accept()
+  expect((await view()).tasks[0]?.verdict.state).toBe('inconclusive')
+})
+
+test('C3: after a step back a failure reads failed, not waiting', async () => {
+  const { w, $, ops, allow, work, endTurn, accept, view } = world()
+  await allow()
+  await work()
+  await endTurn()
+  await accept()
+  w.now -= 500
+  w.output = ' 0 pass\n 3 fail\nRan 3 tests across 1 file.\n'
+  await proof.pressVerify($, ops, ROOT)
+  await pause(120)
+  expect((await view()).roots[0]?.verdict.state).toBe('failed')
+})
+
+test('L2: one root’s attempts do not push out another’s', async () => {
+  const { w, $, ops, allow, work, endTurn } = world()
+  await allow()
+  await work()
+  await endTurn()
+  const ran = w.p.attempts[0]!
+  w.p = { ...w.p, attempts: [...Array.from({ length: 600 }, (_, i) => ({ ...ran, id: `here${i}` })), ...Array.from({ length: 600 }, (_, i) => ({ ...ran, root: '/other', id: `there${i}` }))] }
+  await proof.pressVerify($, ops, ROOT)
+  await pause(120)
+  expect(w.p.attempts.length).toBe(1201)
+})
