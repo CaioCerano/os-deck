@@ -162,3 +162,13 @@ test('W1: a bar in the name of a folder above does not hide what is in it', asyn
     expect([top, under.problem !== null]).toEqual([top, true])
   }
 })
+
+test('audit: off Windows two spellings are two files to watch', async () => {
+  const top = '/work/repo'
+  const held = { [`${top}/tools/run.sh`]: 'one', [`${top}/Tools/run.sh`]: 'two' }
+  const both = [{ ...check(['bash', 'tools/run.sh']), id: 'lint' }, { ...check(['bash', 'Tools/run.sh']), id: 'lint-two' }]
+  const d = await draftFor(disk(held), top, both, 'typed')
+  // Refused would be safe as well; allowed with one of them unwatched is not.
+  if (d.problem === null) for (const path of ['tools/run.sh', 'Tools/run.sh']) expect(d.watched.map(([p]) => p)).toContain(path)
+  else expect(d.problem).toContain('case')
+})

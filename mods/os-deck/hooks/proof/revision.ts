@@ -109,13 +109,15 @@ async function presentFiles($: EngineInterface, root: string, paths: readonly st
   // An ignore file can hide itself with what it hides, so it is in by being on the disk.
   const taken = new Set(files.map(f => key(f.actual)))
   for (const [dir, entries] of listings) {
-    const entry = entries.get('.gitignore')
-    if (!entry || entry.kind === 'dir') continue
-    if (entry.isLink) return { problem: 'a link' }
-    if (entry.kind !== 'file') return { problem: 'something that is not a regular file' }
-    const up = spelled.get(dir) ?? dir
-    const actual = up ? `${up}/${entry.name}` : entry.name
-    if (!taken.has(key(actual))) files.push({ listed: actual, actual })
+    for (const entry of entries.values()) {
+      // In any case: a Mac's disk folds it, and git there reads the file.
+      if (foldCase(entry.name) !== '.gitignore' || entry.kind === 'dir') continue
+      if (entry.isLink) return { problem: 'a link' }
+      if (entry.kind !== 'file') return { problem: 'something that is not a regular file' }
+      const up = spelled.get(dir) ?? dir
+      const actual = up ? `${up}/${entry.name}` : entry.name
+      if (!taken.has(key(actual))) files.push({ listed: actual, actual })
+    }
   }
   return { files, missing }
 }

@@ -125,3 +125,10 @@ test('an ignore file that is a link gives no revision', async () => {
   const r = await readRevision($, '/repo')
   expect(r.ok ? 'ok' : r.reason).toContain('a link')
 })
+
+test('audit: an ignore file in capitals is hashed, as a disk that folds case has git read it', async () => {
+  const { $ } = world({ onDisk: ['src/.GITIGNORE', 'src/new.test.ts'] })
+  const r = await readRevision($, '/repo')
+  if (!r.ok) throw new Error(r.reason)
+  expect([...r.hashes.keys()]).toContain('src/.GITIGNORE')
+})
