@@ -2,7 +2,7 @@
 
 **English** · [Português](README.pt-BR.md)
 
-**152 automated tests** (125 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
+**707 automated tests** (680 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
 
 ![The os-deck mascot changing states: thinking, reading, editing, running a command, subagents, waiting for your ok, failing, compacting, done, idle and asleep](docs/media/mascot-states.gif)
 
@@ -24,7 +24,7 @@ os-deck forked [Flightdeck](https://github.com/scasella/claude-flightdeck) at 0.
 | **[Forecasts](#alerts-and-forecasts)** | Turns left before the context fills, time left for the plan |
 | **History** | Turns, time, tasks, subagents, cost and wait per day, across sessions (`/os-deck today`, `/os-deck history`) |
 | **Plan, git and Jira** | Tasks as a tree by phase with their subagents, the state of each repository, the Jira epic |
-| **Tests** | 125 new tests, on top of 27 kept from Flightdeck's 28 |
+| **Tests** | 680 new tests, on top of 27 kept from Flightdeck's 28 |
 
 ## Author
 
@@ -247,7 +247,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Claude Code versions validated
 
-2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.4.3 passed its 152 tests on the 2.1.330 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
+2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.5.0 passed its 707 tests on the 2.1.330 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
 
 ## License
 
