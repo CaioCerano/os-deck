@@ -16,6 +16,7 @@ os-deck forked [Flightdeck](https://github.com/scasella/claude-flightdeck) at 0.
 
 | Addition | What it does |
 |---|---|
+| **[Agent Proof](#agent-proof)** | Runs the checks you allowed and marks a task verified only on the exact content they passed on |
 | **[Mascot](#the-mascot)** | An animated pixel Clawd with 11 states that follow the session, and a cube for each real subagent |
 | **[cswap](#claude-account-cswap)** | The active Claude account and its limits, switched from the dock |
 | **GitHub** | The branch's PR with its checks, review and the issues it closes |
@@ -78,6 +79,10 @@ The dock opens beside the conversation in a full-screen terminal from 110 column
 | `/os-deck reset` | Clears what the dock gathered this session |
 | `/os-deck demo` | Shows a sample plan in place of yours; `/os-deck reset` brings yours back |
 | `/os-deck hide <section>` / `show <section>` | Hides or shows a section (kept between sessions), `pet` included |
+| `/os-deck proof` | Says what Agent Proof allows and has seen this session |
+| `/os-deck proof setup [folder]` | Shows the checks found, to allow in the dock |
+| `/os-deck proof check <test\|typecheck\|lint\|build> [--dir <folder>] -- <command>` | Drafts a check you name |
+| `/os-deck proof run` / `history` | Runs the allowed checks now, or lists the saved runs |
 | `/os-deck sections` | Lists the sections and which are hidden |
 | `/os-deck layout <auto\|compact\|wide\|mini>` | Changes the layout |
 | `/os-deck epic` | Reads the anchored issue's epic from Jira |
@@ -89,6 +94,45 @@ The dock opens beside the conversation in a full-screen terminal from 110 column
 | `/os-deck account next` | Moves to the next account, like `cswap switch` with no target |
 
 In the dock, the header's `account` row is a button (shortcut `a`): it opens the list of the accounts you already have in `cswap`, with each one's 5h/7d usage. Clicking an account switches to it and shows the result in a toast.
+
+## Agent Proof
+
+An agent's claim of completion is not proof of completion. Agent Proof runs checks you allowed, by itself, and ties what it saw to the exact content of the repository.
+
+1. Type `/os-deck proof setup`. The dock shows the commands it found and the scripts behind them. Nothing has run.
+2. Press **allow** (automatic: checks run when a turn ends with an answer and no agent is at work) or **manual only**. Either lasts for this session.
+3. For tests, press **accept as baseline** after the first run: from then on at least that many must pass and no more may be skipped.
+4. A completed task gets a mark. Open it to see what was claimed, what os-deck verified and what is left for you, and mark it reviewed.
+
+| State | Meaning |
+|---|---|
+| Pending | Claimed, and no checks have run on this content yet |
+| Verifying | The checks are running |
+| Verified (`✓ checks`) | Every required check passed on exactly the content there now, and the change is this task's |
+| Failed | A check failed |
+| Inconclusive | Something needed is missing or unclear: no baseline, unreadable content, tasks that overlapped, an edit outside the allowed repositories |
+| Stale | The content changed after the checks ran |
+
+Verified is about the checks. Whether the task meets its acceptance criteria is the separate review, which only you can mark.
+
+What it trusts:
+
+- Never an agent's message, tool output or "tests pass", and never the saved history, which is only history.
+- Only a press in the dock allows. A command shows or drafts, and must be typed by you.
+- A changed check script or watched manifest pauses the checks until you are shown them again and allow them.
+- `/clear` and a new session drop every allowance and all evidence.
+
+What to know before you press allow:
+
+- **The checks run as you, outside permission prompts and the sandbox.** With automatic runs, code an agent writes into your tests runs at the end of the turn without a prompt. Known credential variables are blanked; the rest of your environment is not.
+- It does not see ignored files, empty folders, alternate data streams, executable bits changed only on disk, dependencies, or shell and MCP writes outside the allowed repositories. An agent that edits your tests can make them pass: changed tests, scripts and test config are listed for your review.
+- Processes a check leaves in the background may outlive it.
+- Test counts are read from `bun test`, `claude plugin test` and `bash …/run_all.sh` printing `[PASS]`/`[FAIL]` lines. Other test runners cannot verify yet. Typecheck, lint and build go by exit code. A script that runs others in a way that cannot be shown whole cannot be allowed.
+- A repository that cannot be read for certain (links, submodules, nested repositories, conflicts, over 20,000 files) is never verified.
+- Once a repository is allowed, a task's start and completion wait up to 1.5 seconds while its content is read.
+- Tested on Windows 11 only.
+
+The design and its threat model are in [the proposal](docs/proposals/agent-proof.md).
 
 ## The mascot
 
@@ -147,20 +191,23 @@ The switch runs `cswap switch <target> --json` by argument vector, with no shell
 
 From `claude plugin validate mods/os-deck`:
 
-- Events: `session.start`, `session.end`, `session.measure`, `session.compact`, `turn.start`, `turn.step`, `turn.complete`, `agent.offer`, `agent.spawn`, `tool.check`, `command.run`, `classic.UserPromptSubmit`, `classic.PermissionRequest` and `classic.PostToolUse` (only to read the permission mode), `ui.render` of the `Pane`.
+- Events: `session.start`, `session.end`, `session.measure`, `session.compact`, `turn.start`, `turn.step`, `turn.complete`, `agent.offer`, `agent.spawn`, `tool.check`, `tool.run`, `command.run`, `classic.UserPromptSubmit`, `classic.PermissionRequest` and `classic.PostToolUse` (only to read the permission mode), `ui.render` of the `Pane`.
 - **Sensitive:**
   - `prompt.submit`: only reads the prompt to find a cited Jira issue key (which anchors the plan). It does not change the prompt.
   - `prompt.compose`: adds a section to the system prompt asking for tasks grouped by work and phase (turned off with `planHint` and `planPolicy`).
-  - `tool.call` and `session.append`: only watch tool calls and messages to draw the plan, the agents, the permissions and the log. They pass everything on without denying, rewriting or delaying anything.
+  - `tool.call` and `session.append`: only watch tool calls and messages to draw the plan, the agents, the permissions and the log. They pass everything on without denying or rewriting anything. Nothing waits on them, except a task's start and completion once Agent Proof has a repository allowed (up to 1.5 seconds).
   - `$.process.run`: runs `git --no-optional-locks -C <dir> symbolic-ref|diff-index --cached|ls-files|for-each-ref|rev-list|rev-parse` by argument vector, with no shell, for the Git section. With the `github` option on, it runs `<ghCommand> pr view --json …` and `<ghCommand> pr list --state open --json …` in the session's directory (read only). With the `cswap` option on, it also runs `<cswapCommand> list --json` (reading the account) and `<cswapCommand> switch [<target>] --json`, the latter only when you ask with `/os-deck account <target>`. The target is validated first (see the section above), and the executables come only from `userConfig`, never from a command argument.
+  - `$.process.spawn`: runs Agent Proof's checks, only those you allowed with a press in this session, by argument vector.
+  - In a repository allowed for Agent Proof, `$.process.run` also runs `git ls-files --others`, `git config --show-scope --get-all core.excludesFile` and `git hash-object --no-filters --stdin-paths`, which read your files' contents without running filters.
   - `$.fs.list`, `$.fs.stat`, `$.fs.read`: find the repositories beneath an opened folder (among its first 200 folders) and read each one's branch from `.git/HEAD`, without following links and without running git there (unless `gitChildRepos` is on).
   - `$.tool.call`: reads the Jira issue and epic through the Atlassian connector (`getJiraIssue`, `searchJiraIssuesUsingJql`), only with `jiraFetch` on or with `/os-deck epic`. Each read asks permission like any tool call.
 - `$.session.cwd`, `$.session.id`, `$.session.messages`, `$.session.usage`: the session's directory, id, history (to rebuild the plan when resuming) and usage.
 - `$.state` (`os-deck.*`): the dock's state in the session, including the main loop's tool and the turn-end and failure times the mascot uses, and the last account reading (`os-deck.account`), so a reload of the mod does not count as a switch. It also reads, without writing, `skins.prefs`, `skins.custom` and `skins.isLight`, to use the skin's colours.
-- `$.store`: hidden sections; the plan's history under a key for each session (`plan-history:<directory hash>#<session>`, two weeks); each day's summary (`os-deck:day:<day>#<session>`, folded into `os-deck:history-days` once the day is past, about two months).
+- `$.agent.list`: whether an agent is still at work, before Agent Proof runs by itself.
+- `$.store`: Agent Proof's history and the checks last allowed (a suggestion, never a permission); hidden sections; the plan's history under a key for each session (`plan-history:<directory hash>#<session>`, two weeks); each day's summary (`os-deck:day:<day>#<session>`, folded into `os-deck:history-days` once the day is past, about two months).
 - `$.ui.notify`: the alerts for a waiting ask and a long turn (the `alerts` option). `$.clock.now`, `$.clock.every` (reading the account every 45 s), `$.clock.after` (a new reading when the 35 s window ends, and the ask alerts), all cancelled when the session ends, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
 
-Text the dock stores from commands, agents, tasks, Jira, GitHub and errors has control characters stripped and goes through a redaction that hides tokens, passwords and keys. It works by pattern, so a secret in a format it does not know can still show. Git is read only with commands that do not open your files' contents, because those can make git run programs a repository chooses: so the Git section counts staged and conflicted files, not modified ones, and untracked ones only with `gitChildRepos` (listing them makes git open nested repositories), and never says a repository is clean. Folders laid out as bare repositories are not read (this needs git 2.38 or later). Jira titles and types, and the section names of a plan you approved, do not enter the system prompt. On Windows, Claude Code's own git follows network paths named in the config of the repository you open, which can send your login hash to that host. The dock cannot prevent that, so open only repositories you trust.
+Text the dock stores from commands, agents, tasks, Jira, GitHub and errors has control characters stripped and goes through a redaction that hides tokens, passwords and keys. It works by pattern, so a secret in a format it does not know can still show. Outside a repository allowed for Agent Proof, git is read only with commands that do not open your files' contents, because those can make git run programs a repository chooses: so the Git section counts staged and conflicted files, not modified ones, and untracked ones only with `gitChildRepos` (listing them makes git open nested repositories), and never says a repository is clean. Folders laid out as bare repositories are not read (this needs git 2.38 or later). Jira titles and types, and the section names of a plan you approved, do not enter the system prompt. On Windows, Claude Code's own git follows network paths named in the config of the repository you open, which can send your login hash to that host. The dock cannot prevent that, so open only repositories you trust.
 
 ## Configuration
 

@@ -2,6 +2,18 @@
 
 **English** · [Português](CHANGELOG.pt-BR.md)
 
+## os-deck 0.5.0
+
+**Agent Proof: evidence-based verification of the tasks agents say are done.**
+
+- **Checks you allow, run by os-deck.** `/os-deck proof setup` shows test, typecheck, lint and build commands with the scripts behind them. One press allows them for the session, automatic or manual only. Before that press nothing runs.
+- **Verified belongs to exact content.** A task is verified only where the required checks passed on the content there now and the change is that task's. An edit makes it stale; missing, unclear or failed evidence never verifies.
+- **Claimed, verified and for you** are drawn apart, with your review as its own mark.
+- **Changed check scripts pause the checks** until you see them and allow them again.
+- **History** of runs, claims and reviews is kept, and never counted as evidence.
+- **Changed: once a repository is allowed,** a task's start and completion wait up to 1.5 seconds while its content is read. With Agent Proof not set up nothing changes.
+- The limits are listed in the README.
+
 ## os-deck 0.4.3
 
 Security and data-loss fixes.

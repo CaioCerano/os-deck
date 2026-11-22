@@ -2,6 +2,18 @@
 
 [English](CHANGELOG.md) · **Português**
 
+## os-deck 0.5.0
+
+**Agent Proof: verificação por evidência das tarefas que os agentes dizem ter terminado.**
+
+- **Checks que você libera, rodados pelo os-deck.** `/os-deck proof setup` mostra comandos de teste, typecheck, lint e build com os scripts por trás deles. Um botão libera para a sessão, automático ou só manual. Antes disso nada roda.
+- **Verified pertence ao conteúdo exato.** Uma tarefa só é verificada se os checks obrigatórios passaram no conteúdo atual e a mudança é dela. Uma edição a deixa stale; evidência que falta, é incerta ou falhou nunca verifica.
+- **O alegado, o verificado e o que fica com você** aparecem separados, com a sua revisão como marca própria.
+- **Scripts de check alterados pausam os checks** até você ver e liberar de novo.
+- **O histórico** de execuções, alegações e revisões é guardado, e nunca conta como evidência.
+- **Mudou: com um repositório liberado,** o início e a conclusão de uma tarefa esperam até 1,5 segundo enquanto o conteúdo é lido. Sem configurar o Agent Proof nada muda.
+- Os limites estão listados no README.
+
 ## os-deck 0.4.3
 
 Correções de segurança e de perda de dados.

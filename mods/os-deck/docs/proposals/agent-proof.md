@@ -1,6 +1,6 @@
 # Agent Proof: technical proposal
 
-Status: **approved on 2026-11-22, with one change: automatic by default.** Revision 2, after an independent architecture review.
+Status: **built in 0.5.0. Approved on 2026-11-22, with one change: automatic by default.** Revision 2, after an independent architecture review.
 Based on os-deck 0.4.3 (`5008096`), Claude Code 2.1.330, Windows 11.
 
 Evidence labels: **[measured]** run for this proposal; **[read]** from code or the engine's type contract; **[assumed]** not yet tested.
@@ -284,5 +284,12 @@ All on `feat/agent-proof`. Nothing is pushed before the final review.
 1. Automatic runs: **on when a root is allowed**; "manual only" is the other choice. A changed check script still pauses them until pressed.
 2. Approval: one press per session.
 3. Label: "checks verified" plus review.
+
+As built, where it differs from the text above:
+
+- Resume shows setup again and takes a new allow, so changed code is never accepted unseen.
+- A task's start and completion wait up to 1.5 s for the content read (two reads, to catch a change during one), not 1 s.
+- An automatic run is owed at most once per claim, so a clock step cannot make runs loop.
+- The executable bit is the index's; a change only on disk is not seen.
 
 Consequence of 1: after that press, code the agent writes into tests runs at the end of a turn without a permission prompt. The setup screen says this.
