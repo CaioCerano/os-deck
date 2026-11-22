@@ -24,7 +24,7 @@ const claim = (over: Partial<ProofClaim> = {}): ProofClaim => ({
   changes: [{ root: R, paths: [{ path: 'a.ts', hash: 'h1' }], overlap: [] }], outside: [], withdrawn: false, ...over,
 })
 const now = (verdict: RootNow['verdict']['state'] = 'verified', hashes: [string, string][] | null = [['a.ts', 'h1']]): RootNow => ({ verdict: { state: verdict, reason: verdict }, hashes: hashes && new Map(hashes) })
-const task = (c: ProofClaim, roots: [string, RootNow][] = [[R, now()]]) => taskVerdict(c, new Map(roots)).state
+const task = (c: ProofClaim, roots: [string, RootNow][] = [[R, now()]]) => taskVerdict(c, new Map(roots), 'S').state
 
 // ---------------------------------------------------------------- the whole table
 
@@ -113,7 +113,7 @@ test('a duplicated result, or one from other content, is no pass', () => {
 
 test('the latest attempt decides, not the best', () => {
   const bad = attempt({ id: 'a2', startedAt: 9, endedAt: 10, checks: [ran(unit, { exitCode: 1 }), ran(types)] })
-  expect(state({ attempts: [bad, attempt()] })).toBe('failed')
+  expect(state({ attempts: [attempt(), bad] })).toBe('failed')
   expect(state({ attempts: [attempt(), { ...bad, startedAt: 2 }] })).toBe('failed')
 })
 

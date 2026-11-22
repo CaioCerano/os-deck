@@ -23,6 +23,7 @@ const world = (w: World = {}) => {
     if (argv.includes('--stage')) return ok(nul(index))
     if (argv.includes('--others')) return ok(nul(w.others ?? []))
     if (argv.includes('--deleted')) return ok(nul(w.deleted ?? []))
+    if (argv.includes('config')) return { ...ok(''), exitCode: 1 }
     if (argv.includes('hash-object')) return ok(w.hashes ?? paths.filter(p => !w.absent?.includes(p)).map(() => `${'b'.repeat(40)}\n`).join(''))
     return ok(`${'c'.repeat(40)}\n`)
   }

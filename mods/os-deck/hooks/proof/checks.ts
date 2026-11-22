@@ -29,11 +29,13 @@ export const outcomeOf = (check: ProofCheck, r: ProofResult | undefined): Outcom
   if (c && isCount(c.failed) && c.failed > 0) return fail(`${c.failed} failed`)
   if (typeof r.exitCode !== 'number' || !Number.isSafeInteger(r.exitCode)) return inconclusive('no exit code')
   if (r.exitCode !== 0) return fail(`exit ${r.exitCode}`)
+  if (!isCount(r.endedAt)) return inconclusive('its end was not seen')
+  if (c && (!isCount(c.passed) || !isCount(c.failed) || !isCount(c.skipped))) return inconclusive('exit 0, but a count not understood')
   if (check.kind !== 'test' && !check.count) return { result: 'pass', reason: 'exit 0' }
   // From here an exit code is not enough: runners exit 0 having run nothing.
   const rule = check.count
   if (!rule) return inconclusive('exit 0, but no way to count the tests')
-  if (!c || !isCount(c.passed) || !isCount(c.failed) || !isCount(c.skipped)) return inconclusive('exit 0, but no test count in the output')
+  if (!c) return inconclusive('exit 0, but no test count in the output')
   if (c.passed === 0) return inconclusive('exit 0, but no test passed')
   if (!isCount(rule.minPassed) || rule.minPassed === 0) return inconclusive(`${c.passed} passed; accept that as the baseline`)
   if (c.passed < rule.minPassed) return inconclusive(`${c.passed} passed, fewer than the ${rule.minPassed} accepted`)

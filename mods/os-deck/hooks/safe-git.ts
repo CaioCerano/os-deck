@@ -15,8 +15,8 @@ const NO_FETCH = { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'none' }
 
 export type RepoState = { branch: string; ahead: number; behind: number; staged: number; untracked: number; conflicts: number }
 
-export function gitRead($: EngineInterface, dir: string, args: readonly string[]) {
-  return $.process.run([...GIT, '-C', dir, ...args], { timeoutMs: 8000, env: NO_FETCH })
+export function gitRead($: EngineInterface, dir: string, args: readonly string[], config: readonly string[] = []) {
+  return $.process.run([...GIT, ...config.flatMap(c => ['-c', c]), '-C', dir, ...args], { timeoutMs: 8000, env: NO_FETCH })
 }
 
 /**
@@ -24,7 +24,7 @@ export function gitRead($: EngineInterface, dir: string, args: readonly string[]
  * filter of any scope. `--no-filters` is all that keeps it from running code: never drop it.
  */
 export function gitHashRaw($: EngineInterface, dir: string, paths: readonly string[]) {
-  return $.process.run([...GIT, '-C', dir, 'hash-object', '--no-filters', '--stdin-paths'], { timeoutMs: 30_000, env: NO_FETCH, stdin: `${paths.join('\n')}\n` })
+  return $.process.run([...GIT, '-c', 'core.longpaths=true', '-C', dir, 'hash-object', '--no-filters', '--stdin-paths'], { timeoutMs: 30_000, env: NO_FETCH, stdin: `${paths.join('\n')}\n` })
 }
 
 const namesIn = (stdout: string) => stdout.split('\0').filter(Boolean)

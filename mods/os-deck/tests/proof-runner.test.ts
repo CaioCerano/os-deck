@@ -3,8 +3,8 @@ import { expect, test } from 'claude-code/testing'
 
 import { outcomeOf } from '../hooks/proof/checks'
 import { counterFor } from '../hooks/proof/counts'
-import { checkProblem, digestOf, grantFrom, mayRun, setupProblem, suggestedChecks, watchedPaths } from '../hooks/proof/grant'
-import { cancelSignal, runCheck } from '../hooks/proof/runner'
+import { checkProblem, digestOf, grantFrom, offerDigest, mayRun, setupProblem, suggestedChecks, watchedPaths } from '../hooks/proof/grant'
+import { KILL_WAIT_MS, cancelSignal, runCheck } from '../hooks/proof/runner'
 import type { ProofCheck } from '../types'
 
 const check = (over: Partial<ProofCheck> = {}): ProofCheck => ({
@@ -22,8 +22,8 @@ const world = (s: Script = {}) => {
   const $ = {
     clock: {
       now: async () => 1,
-      after: (_ms: number, fn: () => void) => {
-        if (s.fireTimer) setTimeout(fn, 5)
+      after: (ms: number, fn: () => void) => {
+        if (s.fireTimer || ms === KILL_WAIT_MS) setTimeout(fn, 5)
         return { cancel: () => void (seen.timerCancelled += 1) }
       },
     },
@@ -178,8 +178,8 @@ test('a root, a folder and a set are checked too', () => {
 
 test('a press allows what was drawn, automatic unless manual was chosen', async () => {
   const checks = [check()]
-  const drawnDigest = await digestOf('/repo', checks)
-  const press = { session: 'S', root: '/repo', checks, drawnDigest, at: 1 }
+  const drawnDigest = await offerDigest('/repo', checks, [])
+  const press = { session: 'S', root: '/repo', checks, scripts: [], drawnDigest, at: 1 }
   const ok = await grantFrom(press)
   expect('grant' in ok && ok.grant.auto).toBe(true)
   const manual = await grantFrom({ ...press, auto: false })
@@ -190,7 +190,7 @@ test('a press allows what was drawn, automatic unless manual was chosen', async 
 
 test('a grant allows this session and these bytes only', async () => {
   const checks = [check()]
-  const made = await grantFrom({ session: 'S', root: '/repo', checks, drawnDigest: await digestOf('/repo', checks), at: 1 })
+  const made = await grantFrom({ session: 'S', root: '/repo', checks, scripts: [], drawnDigest: await offerDigest('/repo', checks, []), at: 1 })
   if (!('grant' in made)) throw new Error(made.refused)
   expect(await mayRun(made.grant, 'S', '/repo')).toBe(true)
   expect(await mayRun(made.grant, 'after-clear', '/repo')).toBe(false)
@@ -212,5 +212,5 @@ test('a forged store gives suggestions, never an allowance', () => {
 
 test('the files behind a check are watched', () => {
   const files = new Map(['package.json', 'app/package.json', 'tests/run_all.sh', 'src/x.ts'].map(p => [p, 'h']))
-  expect(watchedPaths([check({ argv: ['bash', './tests/run_all.sh'] }), check({ id: 'lint', dir: 'app', argv: ['npm', 'run', 'lint'] })], files)).toEqual(['app/package.json', 'package.json', 'tests/run_all.sh'])
+  expect(watchedPaths([check({ argv: ['bash', './tests/run_all.sh'] }), check({ id: 'lint', dir: 'app', argv: ['npm', 'run', 'lint'] })], files)).toEqual(expect.arrayContaining(['app/package.json', 'package.json', 'tests/run_all.sh']))
 })

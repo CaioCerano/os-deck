@@ -2,6 +2,7 @@
 // reason, never repaired: what a person allowed and what runs are the same bytes.
 import type { ProofCheck, ProofGrant } from '../../types'
 import { redact } from '../redact'
+import { isWindowsOddName } from './names'
 import { isLocalPath } from './revision'
 
 const KINDS: readonly string[] = ['test', 'typecheck', 'lint', 'build']
@@ -13,10 +14,29 @@ export const MAX_TIMEOUT_S = 3600
 const badArgument = (arg: string): string | null => {
   // A .cmd shim hands its arguments to cmd, which reads them again.
   if (/[&|<>^%!"]/.test(arg)) return 'a character cmd would read as its own'
+  // Programs of Git Bash expand these in their own arguments, with no shell between.
+  if (/[*?[\]{}]/.test(arg) || /^[@~]/.test(arg)) return 'a character a program would expand'
   // What cannot be seen cannot be approved.
-  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(arg)) return 'a character that does not show'
-  if (/(?:^|[=,;@])[\\/]{2}[^\\/]/.test(arg) || /(?:^|=)file:/i.test(arg)) return 'a network path'
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u.test(arg)) return 'a character that does not show'
+  if (arg !== arg.trim()) return 'a space at either end'
+  const local = arg.replace(/^((?:--?[\w-]{1,40}=)?)https?:\/\/(?=[\w.-])/i, '$1').replace(/\\/g, '/')
+  if (local.includes('//') || /\/Device\/|file:/i.test(local)) return 'a network path'
   return null
+}
+
+/** Why a program may not be run; null where what is named is what would start. */
+const badProgram = (exe: string): string | null => {
+  if (/^[A-Za-z]:[\\/]/.test(exe)) {
+    const steps = exe.slice(3).split(/[\\/]/)
+    if (steps.some(s => s === '' || s === '..' || isWindowsOddName(s))) return 'a program path Windows reads differently'
+    // Without one of these Windows starts a sibling, or whatever opens that kind of file.
+    return /\.(?:exe|com|cmd|bat)$/i.test(exe) ? null : 'a program without .exe, .com, .cmd or .bat'
+  }
+  if (/^\/(?![\\/])/.test(exe)) {
+    return exe.includes('\\') || /(?:^|\/)(?:\.\.|\?\?)(?:\/|$)|^\/Device\//i.test(exe) ? 'a program path not understood' : null
+  }
+  if (!/^[\w+-][\w.+-]*$/.test(exe) || isWindowsOddName(exe)) return 'a program that is neither a bare name nor a full local path'
+  return /\.(?:py|pyw|[cm]?js|jse|[cm]?ts|sh|rb|pl|php|ps1|psm1|vbs|vbe|wsf|hta|lnk|url|txt|msi|scr|pif|jar)$/i.test(exe) ? 'a script in place of a program: name what runs it' : null
 }
 
 /** Why a check may not be allowed; null for one that may. */
@@ -25,9 +45,8 @@ export const checkProblem = (c: ProofCheck): string | null => {
   if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(c.id)) return 'an id not understood'
   if (!Array.isArray(c.argv) || c.argv.length === 0 || c.argv.length > 24 || c.argv.some(a => typeof a !== 'string' || a === '')) return 'no command'
   if (c.argv.join(' ').length > 400) return 'a command too long to show whole'
-  const exe = c.argv[0] as string
-  // A bare name, which the engine never takes from the current folder, or a path on this machine.
-  if (!/^[\w+-][\w.+-]*$/.test(exe) && !isLocalPath(exe)) return 'a program that is neither a bare name nor a full local path'
+  const program = badProgram(c.argv[0] as string)
+  if (program) return program
   for (const arg of c.argv) {
     const bad = badArgument(arg)
     if (bad) return bad
@@ -36,7 +55,7 @@ export const checkProblem = (c: ProofCheck): string | null => {
   const line = c.argv.join(' ')
   if (redact(line) !== line) return 'what looks like a secret'
   if (typeof c.dir !== 'string' || c.dir.length > 200) return 'a folder not understood'
-  if (c.dir !== '' && (c.dir.startsWith('/') || /[\\:]/.test(c.dir) || c.dir.split('/').some(p => p === '' || p === '.' || p === '..') || badArgument(c.dir))) return 'a folder outside the repository'
+  if (c.dir !== '' && (c.dir.startsWith('/') || /[\\:]/.test(c.dir) || c.dir.split('/').some(p => p === '' || p === '.' || p === '..' || isWindowsOddName(p)) || badArgument(c.dir))) return 'a folder outside the repository'
   if (!Number.isSafeInteger(c.timeoutS) || c.timeoutS < 1 || c.timeoutS > MAX_TIMEOUT_S) return 'a time limit out of range'
   if (typeof c.required !== 'boolean') return 'no word on whether it is required'
   if (c.count && !PARSERS.includes(c.count.parser)) return 'a count format not known'
@@ -57,17 +76,34 @@ export const setupProblem = (root: string, checks: readonly ProofCheck[]): strin
   return null
 }
 
+const hashed = async (value: unknown) => {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value)))
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
 /**
  * The hash of what would run. The accepted counts are not in it: accepting a baseline judges the run
  * that was seen, and runs nothing.
  */
-export async function digestOf(root: string, checks: readonly ProofCheck[]): Promise<string> {
-  const body = JSON.stringify([root, checks.map(c => [c.id, c.kind, c.argv, c.dir, c.timeoutS, c.required, c.count?.parser ?? null])])
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body))
-  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('')
-}
+export const digestOf = (root: string, checks: readonly ProofCheck[]): Promise<string> =>
+  hashed([root, checks.map(c => [c.id, c.kind, c.argv, c.dir, c.timeoutS, c.required, c.count?.parser ?? null])])
 
-export type Press = { session: string; root: string; checks: readonly ProofCheck[]; drawnDigest: string; auto?: boolean; at: number }
+export type ShownScript = { checkId: string; name: string; body: string }
+
+/** The hash of all a press approves as drawn: what would run, the script bodies shown, and the counts that will judge it. */
+export const offerDigest = async (root: string, checks: readonly ProofCheck[], scripts: readonly ShownScript[]): Promise<string> =>
+  hashed(['offer', await digestOf(root, checks), checks.map(c => [c.count?.minPassed ?? null, c.count?.maxSkipped ?? null]), scripts.map(s => [s.checkId, s.name, s.body])])
+
+export type Press = {
+  session: string
+  root: string
+  checks: readonly ProofCheck[]
+  /** Read again at the press, to be held against what was drawn. */
+  scripts: readonly ShownScript[]
+  drawnDigest: string
+  auto?: boolean
+  at: number
+}
 
 /**
  * An allowance from a person's press, or why there is none: only for what was drawn when they pressed,
@@ -77,10 +113,9 @@ export async function grantFrom(p: Press): Promise<{ grant: ProofGrant } | { ref
   if (!p.session) return { refused: 'the session is not known' }
   const problem = setupProblem(p.root, p.checks)
   if (problem) return { refused: problem }
-  const digest = await digestOf(p.root, p.checks)
-  if (digest !== p.drawnDigest) return { refused: 'the checks changed since they were shown' }
+  if ((await offerDigest(p.root, p.checks, p.scripts)) !== p.drawnDigest) return { refused: 'the checks changed since they were shown' }
   const checks = p.checks.map(c => ({ ...c, argv: [...c.argv], ...(c.count ? { count: { ...c.count } } : {}) }))
-  return { grant: { session: p.session, root: p.root, checks, digest, auto: p.auto !== false, at: p.at } }
+  return { grant: { session: p.session, root: p.root, checks, digest: await digestOf(p.root, checks), auto: p.auto !== false, at: p.at } }
 }
 
 /** Whether a grant still allows running, asked again before every run. */
@@ -96,33 +131,60 @@ export const suggestedChecks = (stored: unknown): ProofCheck[] => {
   for (const x of stored.slice(0, MAX_CHECKS)) {
     if (typeof x !== 'object' || x === null) continue
     const v = x as ProofCheck
-    const count = typeof v.count === 'object' && v.count !== null ? { parser: v.count.parser, minPassed: v.count.minPassed ?? null, maxSkipped: v.count.maxSkipped ?? 0 } : null
+    if (typeof v.id !== 'string' || (v.description !== undefined && typeof v.description !== 'string')) continue
+    const count = typeof v.count === 'object' && v.count !== null ? { parser: v.count.parser, minPassed: Number.isSafeInteger(v.count.minPassed) ? v.count.minPassed : null, maxSkipped: Number.isSafeInteger(v.count.maxSkipped) ? v.count.maxSkipped : 0 } : null
     const check: ProofCheck = { id: String(v.id), kind: v.kind, description: redact(String(v.description ?? '')).slice(0, 80), argv: Array.isArray(v.argv) ? [...v.argv] : [], dir: v.dir ?? '', timeoutS: v.timeoutS, required: v.required, ...(count ? { count } : {}) }
     if (checkProblem(check) === null) out.push(check)
   }
   return out
 }
 
-/** The files whose change means a check no longer runs what was allowed: its manifests and any file it names. */
-export const watchedPaths = (checks: readonly ProofCheck[], files: ReadonlyMap<string, string>): string[] => {
-  const out = new Set<string>()
-  const lower = new Map([...files.keys()].map(f => [f.toLowerCase(), f]))
-  const watch = (path: string) => {
-    const found = lower.get(path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase())
-    if (found) out.add(found)
+const MANIFESTS = ['package.json', 'bunfig.toml', '.npmrc', 'tsconfig.json', 'Makefile', 'GNUmakefile']
+
+/** A path named from a folder of the root, as one from the root; null where it is outside. */
+const inRoot = (dir: string, value: string, root: string): string | null => {
+  let v = value.replace(/\\/g, '/')
+  const top = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  let from = dir
+  if (top && v.toLowerCase().startsWith(`${top.toLowerCase()}/`)) {
+    v = v.slice(top.length + 1)
+    from = ''
+  } else if (/^(?:\/|[A-Za-z]:)/.test(v)) return null
+  const out: string[] = []
+  for (const step of [...(from ? from.split('/') : []), ...v.split('/')]) {
+    if (step === '' || step === '.') continue
+    if (step !== '..') out.push(step)
+    else if (out.pop() === undefined) return null
+  }
+  return out.join('/')
+}
+
+/**
+ * The files whose change means a check no longer runs what was allowed: its manifests and what it
+ * names. Those not there yet as well: appearing is a change.
+ */
+export const watchedPaths = (checks: readonly ProofCheck[], files: ReadonlyMap<string, string>, root = ''): string[] => {
+  const out = new Map<string, string>()
+  const actual = new Map([...files.keys()].map(f => [f.toLowerCase(), f]))
+  const dirs = new Set<string>()
+  for (const path of files.keys()) for (let i = path.indexOf('/'); i > 0; i = path.indexOf('/', i + 1)) dirs.add(path.slice(0, i).toLowerCase())
+  const watch = (path: string) => void out.set(path.toLowerCase(), actual.get(path.toLowerCase()) ?? path)
+  const watchFolder = (dir: string) => {
+    for (const name of MANIFESTS) watch(dir ? `${dir}/${name}` : name)
   }
   for (const c of checks) {
-    const inDir = (name: string) => (c.dir ? `${c.dir}/${name}` : name)
-    // Manifests of the folder, and of the root above it.
-    for (const name of ['package.json', 'bunfig.toml', '.npmrc', 'tsconfig.json', 'Makefile']) {
-      watch(inDir(name))
-      watch(name)
-    }
-    for (const arg of c.argv) {
-      const value = (arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : arg).replace(/^\.\//, '')
-      watch(inDir(value))
-      watch(value)
+    watchFolder('')
+    if (c.dir) watchFolder(c.dir)
+    // Every word, and what follows an `=` in it: `--prefix=app`, `-c "tests/run.sh --fast"`.
+    for (const word of c.argv.flatMap(a => a.split(/[\s;]+/)).flatMap(w => (w.includes('=') ? [w, w.slice(w.indexOf('=') + 1)] : [w]))) {
+      if (!word || word.startsWith('-')) continue
+      for (const from of new Set([c.dir, ''])) {
+        const path = inRoot(from, word, root)
+        if (!path) continue
+        if (dirs.has(path.toLowerCase())) watchFolder(path)
+        else if (actual.has(path.toLowerCase()) || /^[\w./ -]+\.[A-Za-z0-9]{1,8}$/.test(path)) watch(path)
+      }
     }
   }
-  return [...out].sort()
+  return [...out.values()].sort()
 }

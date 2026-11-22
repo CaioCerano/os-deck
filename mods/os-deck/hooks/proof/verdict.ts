@@ -14,6 +14,7 @@ export type RootFacts = {
   grant: ProofGrant | null
   /** The content's revision now; null where it cannot be read. */
   current: string | null
+  /** In the order they were recorded, from session state alone: the store's are history, never evidence. */
   attempts: readonly ProofAttempt[]
   /** The attempt this load is running; any other without an end was interrupted. */
   liveId: string | null
@@ -25,8 +26,10 @@ export const rootVerdict = (f: RootFacts): RootVerdict => {
   let attempt: ProofAttempt | null = null
   for (const a of f.attempts) {
     if (a.session !== f.session || a.root !== f.root || a.digest !== grant.digest) continue
-    // Of two that began together, the one recorded later.
-    if (!attempt || a.startedAt >= attempt.startedAt) attempt = a
+    // Not from before this allowance. A clock set back only loses evidence.
+    if (!(a.startedAt >= grant.at)) continue
+    // The one recorded last, never the one the clock calls newest.
+    attempt = a
   }
   if (!attempt) return { state: 'pending', reason: grant.auto ? 'runs when the turn ends' : 'press verify', attempt }
   const is = (state: ProofState, reason: string): RootVerdict => ({ state, reason, attempt })
@@ -42,7 +45,7 @@ export const rootVerdict = (f: RootFacts): RootVerdict => {
   // A failure is shown over anything less certain, on either state of the files it was seen on.
   const failed = results.find(x => x.outcome.result === 'fail')
   if (failed && (current === before || current === after)) return is('failed', `${failed.check.id}: ${failed.outcome.reason}`)
-  if (attempt.endedAt === null || !after) return is('inconclusive', 'the run was interrupted')
+  if (typeof attempt.endedAt !== 'number' || !Number.isFinite(attempt.endedAt) || !after) return is('inconclusive', 'the run was interrupted')
   if (before !== after && current === after) return is('inconclusive', 'the files changed while the checks ran')
   if (current !== before || current !== after) return is('stale', failed ? 'changed since it failed' : 'changed since the checks ran')
   if (required.length === 0) return is('inconclusive', 'no check is required')
@@ -63,7 +66,8 @@ export type RootNow = {
 // The worst first. A failure is never hidden by anything; a green by everything.
 const WORST: readonly ProofState[] = ['failed', 'verifying', 'inconclusive', 'stale', 'pending', 'verified']
 
-export const taskVerdict = (claim: ProofClaim, roots: ReadonlyMap<string, RootNow>): Verdict => {
+export const taskVerdict = (claim: ProofClaim, roots: ReadonlyMap<string, RootNow>, session: string): Verdict => {
+  if (claim.session !== session) return { state: 'pending', reason: 'claimed in another session' }
   if (claim.withdrawn) return { state: 'pending', reason: 'reopened' }
   const changes = claim.changes.filter(c => c.paths.length > 0)
   const found: Verdict[] = []

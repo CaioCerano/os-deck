@@ -51,7 +51,7 @@ export type Lifecycle = {
     busy: readonly string[]
   }) => string[]
   /** The watched paths whose content is not what was allowed. */
-  changedWatched: (allowed: readonly [path: string, hash: string][], now: ReadonlyMap<string, string>) => string[]
+  changedWatched: (allowed: readonly [path: string, hash: string | null][], now: ReadonlyMap<string, string>) => string[]
   /** The changed paths a person should look at: tests, scripts, test configuration. */
   reviewWorthy: (paths: readonly string[]) => string[]
 }

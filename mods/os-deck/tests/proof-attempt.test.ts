@@ -22,6 +22,7 @@ const world = (onSpawn: (n: number, set: (hash: string) => void) => void = () =>
     if (argv.includes('--show-toplevel')) return ok('/repo\n')
     if (argv.includes('--git-path')) return ok('.git/info/exclude\n')
     if (argv.includes('--stage')) return ok(`100644 ${A} 0\tpackage.json\0`)
+    if (argv.includes('config')) return { ...ok(''), exitCode: 1 }
     if (argv.includes('hash-object')) return ok(`${hash}\n`)
     if (argv.includes('ls-files')) return ok('')
     return ok(`${'c'.repeat(40)}\n`)
