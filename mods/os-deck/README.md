@@ -133,6 +133,7 @@ What to know before you press allow:
 - Processes a check leaves in the background may outlive it.
 - Only a small grammar runs automatically: `claude plugin test`, `bun test`, `bash <file>`, `node <file.js>`, a few tools (`tsc`, `eslint`, `prettier --check`, `jest`, `vitest run`, `vite build`, `pytest`, `ruff check`, `mypy`) with known flags, and `npm run <script>` where the script is plain words joined by `&&` of those. An unknown program such as `cargo` or `make` is manual only. Anything else is refused: quotes, globs, variables, redirects, `npx`, `pnpm`, `yarn`, `turbo`, and `.npmrc` settings not known to be harmless. Setup leaves out what it cannot allow and says so.
 - Test counts are read from `bun test`, `claude plugin test` and `bash …/run_all.sh` printing `[PASS]`/`[FAIL]` lines. Other test runners cannot verify, so setup does not propose them. Typecheck, lint and build go by exit code.
+- On Windows, an npm check is refused where a program it runs is a link in `node_modules/.bin`: setup follows no link there, as one could lead to a network share. Off Windows setup reads where such a link leads, before any press.
 - An npm check is refused under a workspace of a folder above, which would lend it config nobody was shown.
 - An npm check is refused where a folder's name holds the character that separates PATH entries (`;` on Windows), which would send npm into another folder.
 - An edit still running, or waiting on your permission, as a task completes counts as that task's, even if it is denied afterwards.
