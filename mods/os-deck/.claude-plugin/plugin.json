@@ -1,7 +1,7 @@
 {
   "name": "os-deck",
   "version": "0.4.0",
-  "description": "OS-Deck: painel lateral de agentes do Claude Code (fork do Flightdeck). Plano por fase com subagentes aninhados, arquiteto de plantão, permissões, git, épico do Jira, linha do tempo e log da sessão, com as cores do skin ativo",
+  "description": "OS-Deck: a live agent dock for Claude Code (fork of Flightdeck). Plan by phase with nested subagents, an architect on call, permissions, git and GitHub, the Jira epic, a timeline and the session log, in the active skin's colours, with the Clawd mascot",
   "author": {
     "name": "Caio Cerano",
     "url": "https://github.com/CaioCerano"
@@ -161,20 +161,20 @@
       "default": true
     },
     "cswap": {
-      "title": "Conta (cswap)",
-      "description": "Mostra no cabeçalho a conta ativa do cswap (claude-swap) e permite trocá-la com /os-deck account. Sem o cswap instalado a linha não aparece",
+      "title": "Account (cswap)",
+      "description": "Shows the active cswap (claude-swap) account in the header and lets you switch it with /os-deck account. Without cswap installed the row does not show",
       "type": "boolean",
       "default": true
     },
     "cswapCommand": {
-      "title": "Comando do cswap",
-      "description": "O executável do cswap: um nome no PATH ou o caminho completo, quando o Claude Code não o acha no PATH",
+      "title": "cswap command",
+      "description": "The cswap executable: a name on the PATH or a full path, when Claude Code cannot find it on the PATH",
       "type": "string",
       "default": "cswap"
     },
     "pet": {
-      "title": "Mascote",
-      "description": "Desenha o Clawd, um mascote em pixel art, no começo do cabeçalho da visão plan; ele mostra o que o Claude está fazendo. Some em painel estreito ou baixo e no layout mini",
+      "title": "Mascot",
+      "description": "Draws Clawd, a pixel-art mascot, at the start of the plan view's header; it shows what Claude is doing. Left out in a short dock and in the mini layout",
       "type": "boolean",
       "default": true
     },
@@ -186,31 +186,31 @@
     },
     "github": {
       "title": "GitHub",
-      "description": "Seção GitHub na visão plan: o pull request da branch (checks, review, issues que fecha) pelo gh CLI; sem PR, os PRs abertos do repositório",
+      "description": "GitHub section in the plan view: the branch's pull request (checks, review, issues it closes) through the gh CLI; with no PR, the repository's open PRs",
       "type": "boolean",
       "default": true
     },
     "ghCommand": {
-      "title": "Comando do gh",
-      "description": "O executável do gh CLI, quando o Claude Code não o acha no PATH",
+      "title": "gh command",
+      "description": "The gh CLI executable, when Claude Code cannot find it on the PATH",
       "type": "string",
       "default": "gh"
     },
     "alerts": {
-      "title": "Alertas",
-      "description": "Notificação nativa quando um pedido de permissão espera por você e quando um turno longo termina",
+      "title": "Alerts",
+      "description": "A native notification when a permission ask waits on you and when a long turn ends",
       "type": "boolean",
       "default": true
     },
     "alertAfterS": {
-      "title": "Alerta de permissão (s)",
-      "description": "Segundos que um pedido de permissão espera antes do alerta",
+      "title": "Permission alert (s)",
+      "description": "Seconds a permission ask waits before the alert",
       "type": "number",
       "default": 30
     },
     "alertTurnMin": {
-      "title": "Alerta de turno longo (min)",
-      "description": "Minutos que um turno precisa durar para o fim dele ser avisado",
+      "title": "Long turn alert (min)",
+      "description": "Minutes a turn must last for its end to be announced",
       "type": "number",
       "default": 2
     }

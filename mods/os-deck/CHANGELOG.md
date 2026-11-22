@@ -1,85 +1,91 @@
 # Changelog
 
+**English** · [Português](CHANGELOG.pt-BR.md)
+
 ## os-deck 0.4.0
 
-- **Cubos = subagentes de verdade.** Cada cubo tem a cor do subagente na ordem em que foi criado, e a linha dele no plano ganha um `■` da mesma cor. Quando um subagente termina, o cubo fica parado um instante com um brilho `✦`; quando falha, fica vermelho.
-- **Detalhe do mascote.** O `▾` ao lado da legenda (atalho `p`) abre, embaixo do cabeçalho, a ferramenta que o loop principal está rodando, com o tempo, e os subagentes (rodando primeiro), cada um um botão que abre o cartão dele.
-- **Novos estados do mascote.** `running`: `Bash` e `PowerShell` agora mostram um terminalzinho com `>_`, prompt, comando e saída (antes caíam no teclado de edição). `compact`: quando o contexto compacta, o Clawd achata sob um `⟲` e pula de volta. Com o contexto em 85% ou mais, ele sua (gota ao lado da cabeça) e a legenda diz `ctx 92%`.
-- **Seção GitHub** (`github`, ligada por padrão): o PR da branch pelo `gh` CLI, com estado, checks (`✓ ✗ …`), review e as issues que ele fecha (`Closes #N`); sem PR, até três PRs abertos do repositório. Lê ao abrir a sessão, ao fim de cada turno (no máximo uma vez por minuto) e na hora depois de um `git push` ou `gh pr`. `/os-deck github` força a leitura e diz o que achou ou por que não leu. Opções `github` e `ghCommand`.
-- **Alertas.** Notificação nativa (pelo canal de notificação configurado: iTerm2, kitty, Ghostty, sino do terminal ou o app) quando um pedido de permissão espera mais de 30 s e quando um turno de 2 min ou mais termina. Não avisa no modo auto nem quando você mesmo interrompe o turno. Opções `alerts`, `alertAfterS` e `alertTurnMin`.
-- **Previsões.** A linha de contexto mostra quantos turnos faltam para encher (`~6 turns left`), pela média dos últimos turnos; uma compactação recomeça a conta. No plano, cada grupo aberto e a barra mostram o tempo estimado que falta, pela duração média das tasks já concluídas na sessão.
-- **Histórico.** Cada dia fica guardado entre sessões: turnos, tempo trabalhando, tasks concluídas, subagentes, custo e pedidos de permissão (com o tempo que você levou para responder). `/os-deck today` (ou `hoje`) e `/os-deck history` (7 dias, com total).
-- **Correção:** o modo de permissão voltou a ser lido durante o turno. O `classic.PreToolUse` não traz mais `permission_mode`; agora ele vem de `classic.PermissionRequest` e `classic.PostToolUse`, então o `!` do mascote volta a sumir no modo auto mesmo depois de um shift+tab no meio do turno.
-- **Correção:** uma leitura de git ou GitHub que falha depois do fim da sessão não deixa mais uma rejeição solta.
-- Testes: três testes antigos que falhavam foram corrigidos (premissas de macOS e de painel com menos de 40 colunas, e a seção do arquiteto na visão plan); 12 testes novos em `tests/upgrades.test.ts`.
-- O código novo fica em módulos próprios (`github.ts`, `alerts.ts`, `forecast.ts`, `history.ts`). O estado continua no `register.tsx`: o engine só aceita `$.state` com átomos declarados no próprio módulo de hooks, então ele não pode ser dividido por seção.
+- **Cubes are the real subagents.** Each cube wears its subagent's colour, by the order it was spawned, and its row in the plan gets a `■` in the same colour. When a subagent finishes, its cube holds still a moment under a `✦`; when it fails, it turns red.
+- **Mascot detail.** The `▾` next to the caption (shortcut `p`) opens, under the header, the tool the main loop is running, with its elapsed time, and the subagents (running first), each a button that opens its card.
+- **New mascot states.** `running`: `Bash` and `PowerShell` now show a small terminal with `>_`, prompt, command and output (they used to fall into the editing keyboard). `compact`: when the context compacts, Clawd squashes flat under a `⟲` and springs back. With context at 85% or more, it sweats (a drop beside its head) and the caption says `ctx 92%`.
+- **GitHub section** (`github`, on by default): the branch's PR through the `gh` CLI, with its state, checks (`✓ ✗ …`), review and the issues it closes (`Closes #N`); with no PR, up to three of the repository's open PRs. Read when the session opens, at the end of each turn (at most once a minute) and right after a `git push` or `gh pr`. `/os-deck github` forces a read and says what it found or why it could not read. Options `github` and `ghCommand`.
+- **Alerts.** A native notification (through the configured notification channel: iTerm2, kitty, Ghostty, the terminal bell or the app) when a permission ask waits more than 30 s and when a turn of 2 min or more ends. No alert in auto mode, or when you stopped the turn yourself. Options `alerts`, `alertAfterS` and `alertTurnMin`.
+- **Forecasts.** The context line shows how many turns are left before it fills (`~6 turns left`), from the average of the last turns; a compaction starts the count over. In the plan, each open group and the bar show the estimated time left, from the average duration of the tasks already finished this session.
+- **History.** Each day is kept between sessions: turns, time working, tasks finished, subagents, cost and permission asks (with the time you took to answer). `/os-deck today` (or `hoje`) and `/os-deck history` (7 days, with a total).
+- **Fix:** the permission mode is read during the turn again. `classic.PreToolUse` no longer carries `permission_mode`; it now comes from `classic.PermissionRequest` and `classic.PostToolUse`, so the mascot's `!` hides in auto mode again, even after a shift+tab mid-turn.
+- **Fix:** a git or GitHub read that fails after the session ends no longer leaves an unhandled rejection.
+- Tests: three old failing tests were fixed (assumptions of macOS paths and of a dock under 40 columns, and the architect section in the plan view); 12 new tests in `tests/upgrades.test.ts`.
+- The new code lives in its own modules (`github.ts`, `alerts.ts`, `forecast.ts`, `history.ts`). The state stays in `register.tsx`: the engine only accepts `$.state` with atoms declared in the hooks module itself, so it cannot be split by section.
 
 ## os-deck 0.3.6
 
-- As pernas do Clawd ficam rentes às bordas do corpo, como no Clawd do Claude Code, e a sombra no chão tem a largura do corpo.
-- Lendo: em vez da lupa, ele segura um livro aberto na frente, os olhos correm da página da esquerda para a da direita, pisca e vira a página.
-- Editando: em vez do lápis, ele digita num teclado na frente dele, as mãos se alternam, cada tecla pressionada acende e `fix(bug);` aparece letra a letra acima da cabeça, com cursor piscando.
-- Subagentes: um cubinho flutuante com olhos (sem pernas) para cada subagente rodando, não mais dois no máximo. Até 4 são cubos grandes; de 5 a 11 viram minicubos em volta do corpo; acima disso aparece `+N`. Os cubos sobem, descem e piscam fora de sincronia.
+- Clawd's legs sit flush with the edges of its body, like Claude Code's own Clawd, and the floor shadow is as wide as the body.
+- Reading: instead of the magnifier, it holds an open book in front, its eyes run from the left page to the right, it blinks and turns the page.
+- Editing: instead of the pencil, it types on a keyboard in front of it, the hands take turns, each key pressed lights up and `fix(bug);` appears letter by letter above its head, with a blinking cursor.
+- Subagents: a small floating cube with eyes (no legs) for each running subagent, no longer two at most. Up to 4 are big cubes; from 5 to 11 they become mini cubes around the body; past that, a `+N` shows. The cubes bob and blink out of step.
 
 ## os-deck 0.3.5
 
-- Um subagente retomado não duplica mais o cartão: o painel recusava a árvore inteira (`Client ... is drawn twice`) e sumia. O cartão volta a rodar com o que o agente já fez, e sessões que já tinham duplicatas se corrigem sozinhas.
+- A resumed subagent no longer duplicates its card: the dock used to refuse the whole tree (`Client ... is drawn twice`) and disappear. The card runs again with what the agent already did, and sessions that already had duplicates fix themselves.
 
 ## os-deck 0.3.4
 
-- No modo auto o pet não mostra mais o `!`: lá o pedido vai para o classificador, não para a pessoa. O modo é lido antes de cada chamada de ferramenta, então trocar com shift+tab no meio do turno também vale.
+- In auto mode the pet no longer shows the `!`: there the ask goes to the classifier, not to the person. The mode is read before each tool call, so switching with shift+tab mid-turn counts too.
 
 ## os-deck 0.3.3
 
-- O pet mostra a animação de agentes enquanto houver subagentes rodando, mesmo depois que o turno principal termina (subagentes em segundo plano antes deixavam o pet em done/idle).
-- O início do turno de um subagente não reinicia mais o turno principal nem o marca como rodando.
+- The pet shows the agents animation while any subagent is running, even after the main turn ends (background subagents used to leave the pet in done/idle).
+- A subagent's turn starting no longer restarts the main turn or marks it running.
 
 ## os-deck 0.3.2
 
-- Os efeitos do pet agora são caracteres de verdade sobre células inteiras, nítidos onde os meio-blocos borravam: o pensamento é um balão `( • · · )` com rastro saindo da cabeça e pontos que acendem em sequência; o pedido de permissão é um balão com `!` em vermelho e o braço acenando; o sono solta `z`/`Z` que sobem e somem; o fim do turno tem brilhos `✦ ✧` piscando.
-- O olhar para cima fica um pixel abaixo do topo da cabeça, sem colar na borda.
-- Parado, o pet acena de vez em quando.
-- O topo do painel não repete mais o nome OS-Deck (a moldura já mostra): a linha só conta tasks e agentes, e some quando não há nenhum.
+- The pet's effects are now real characters over whole cells, crisp where the half blocks blurred: thinking is a `( • · · )` balloon with a trail from the head and dots that light in turn; a permission ask is a balloon with a red `!` and the arm waving; sleep lets out `z`/`Z` that rise and fade; a turn's end has twinkling `✦ ✧` sparkles.
+- Eyes raised sit a pixel below the top of the head, not on the edge.
+- Idle, the pet waves now and then.
+- The top of the dock no longer repeats the OS-Deck name (the frame already shows it): the row only counts tasks and agents, and goes when there are none.
 
 ## os-deck 0.3.1
 
-- O pet não mostra mais faixas entre as linhas em terminais com entrelinha: células de uma cor só viram espaço com cor de fundo, o desenho foi alinhado a células inteiras e, nas células de duas cores, o glifo (`▀` ou `▄`) é escolhido pela cor vizinha.
+- The pet no longer shows bands between rows in terminals with line spacing: one-colour cells become a space on that background colour, the drawing was aligned to whole cells and, in two-colour cells, the glyph (`▀` or `▄`) is chosen by the neighbouring colour.
 
 ## os-deck 0.3.0
 
-- O cabeçalho da visão plan começa com o Clawd, um mascote em pixel art (meio-blocos, 24×8) que mostra o que o Claude está fazendo: esperando, pensando, lendo, editando, com subagentes, pedindo permissão, com erro, concluído ou dormindo.
-- Com o mascote, o resumo ao lado fica mais enxuto (gauge de contexto menor, limites sem gauge).
-- Nova seção `pet` (`/os-deck hide pet`) e nova opção `pet`.
-- Sem espaço para o pet, o cabeçalho diz o tamanho atual e o mínimo; `/os-deck pet` explica por que ele não aparece.
-- Animação: cada estado começa do primeiro quadro, trocas rápidas entre tipos de trabalho esperam 0,7 s, e o estado sobrevive a um redesenho do painel. Pensando, concluiu e pedindo permissão redesenhados.
+- The plan view's header starts with Clawd, a pixel-art mascot (half blocks, 24×8) that shows what Claude is doing: waiting, thinking, reading, editing, with subagents, asking permission, erroring, done or sleeping.
+- With the mascot, the summary beside it is leaner (shorter context gauge, limits without gauges).
+- New `pet` section (`/os-deck hide pet`) and new `pet` option.
+- With no room for the pet, the header says the current size and the minimum; `/os-deck pet` explains why it is not shown.
+- Animation: each state starts from its first frame, quick switches between kinds of work wait 0.7 s, and the state survives a redraw of the dock. Thinking, done and asking permission redrawn.
 
 ## os-deck 0.2.0
 
-- O cabeçalho mostra a conta ativa do `cswap` (claude-swap) e acompanha as trocas feitas fora do OS-Deck (leitura a cada 45 s e antes de cada prompt e medição).
-- `/os-deck account [n|email|alias|next]` lista as contas ou troca a conta pelo `cswap`, por argv e sem shell.
-- Depois de uma troca, os limites da conta anterior são descartados e as medições da sessão ficam suspensas por 35 s (cache do Keychain); nesse período aparecem os limites do `cswap`, marcados com `~`.
-- No painel, a linha da conta abre a lista das contas do `cswap` (atalho `a`); clicar numa conta faz a troca.
-- Novas opções: `cswap` e `cswapCommand`.
+- The header shows the active `cswap` (claude-swap) account and follows switches made outside OS-Deck (read every 45 s and before each prompt and measurement).
+- `/os-deck account [n|email|alias|next]` lists the accounts or switches the account through `cswap`, by argv and with no shell.
+- After a switch, the previous account's limits are dropped and the session's measurements are held for 35 s (Keychain cache); during that time `cswap`'s limits show, marked with `~`.
+- In the dock, the account row opens the list of `cswap` accounts (shortcut `a`); clicking an account switches to it.
+- New options: `cswap` and `cswapCommand`.
 
-## 0.4.0
+## Flightdeck (upstream)
+
+The releases of the original Flightdeck that os-deck was forked from.
+
+### 0.4.0
 
 - The main box shows the time left until each rate-limit window resets (`5h ▰▱▱▱▱ 19% ↻3h10m`), from the `resetsAt` the session already reports. Below 56 columns the gauges stay as they were. ([#3](https://github.com/scasella/claude-flightdeck/pull/3), thanks @vihrea1337)
 - The main box shows the last main-loop request's time to first token and decode speed (`last req  ttft 0.8s · 60 tok/s`), timed as its response streams past. ([#1](https://github.com/scasella/claude-flightdeck/issues/1))
 - The session log has a one-row gap above it, in both layouts. ([#2](https://github.com/scasella/claude-flightdeck/issues/2))
 
-## 0.3.2
+### 0.3.2
 
 - A background architect's advice is read from its `SubagentHandback` tool call, where the report actually arrives, with the hand-back text as a fallback. Bold markers no longer leak into the advice line.
 - README: no longer promises that counters survive every update; a change to the state's shape may reset them once.
 
-## 0.3.1
+### 0.3.1
 
 - The main box shows the model and effort as soon as a request starts, not after the first one finishes.
 - Advice from a background architect agent (such as `fable-advisor`) now reaches the architect's `»` line; it arrives as a hand-back message, not as the agent's own answer.
 - New README media showing the Flightdeck header; plainer wording about opening on start.
 - More gate tests (24 in all).
 
-## 0.3.0
+### 0.3.0
 
 First public release.
 

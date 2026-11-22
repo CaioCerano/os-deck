@@ -1,6 +1,13 @@
 {
   "name": "os-mods",
-  "owner": { "name": "Caio Cerano" },
-  "description": "Mods do Claude Code criados por Caio Cerano",
-  "plugins": [ { "name": "os-deck", "source": "./mods/os-deck" } ]
+  "owner": {
+    "name": "Caio Cerano"
+  },
+  "description": "Claude Code mods by Caio Cerano",
+  "plugins": [
+    {
+      "name": "os-deck",
+      "source": "./mods/os-deck"
+    }
+  ]
 }

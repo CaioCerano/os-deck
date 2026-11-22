@@ -1,168 +1,170 @@
 # os-deck
 
-Painel lateral (dock) que mostra, ao vivo, o que a sessão do Claude Code está fazendo: o plano quebrado em tarefas por fase, os subagentes de cada tarefa, as consultas ao arquiteto, as checagens de permissão, o estado do git, o épico do Jira e o log da sessão. As cores seguem o skin ativo do mod [skins](https://github.com/hellosverre/claude-skins), quando ele está ligado.
+**English** · [Português](README.pt-BR.md)
 
-É um fork do [Flightdeck](https://github.com/scasella/claude-flightdeck) (MIT, de Stephen Casella), adaptado para o nosso fluxo. A documentação original está em [docs/flightdeck-original.md](docs/flightdeck-original.md).
+A side dock that shows, live, what your Claude Code session is doing: the plan broken into tasks by phase, each task's subagents, architect consults, permission checks, git and GitHub state, the Jira epic and the session log. Its colours follow the active skin of the [skins](https://github.com/hellosverre/claude-skins) mod when that mod is on.
 
-## Autor
+It is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) (MIT, by Stephen Casella), adapted to our workflow. The original documentation is in [docs/flightdeck-original.md](docs/flightdeck-original.md).
+
+## Author
 
 Caio Cerano ([@CaioCerano](https://github.com/CaioCerano)).
 
-## Instalar
+## Install
 
-No prompt do Claude Code (terminal):
+At the Claude Code prompt (terminal):
 
 ```text
 /plugin install os-deck --marketplace CaioCerano/os-deck
 ```
 
-De um shell:
+From a shell:
 
 ```text
 claude plugin install os-deck --marketplace CaioCerano/os-deck
 ```
 
-No app desktop, onde `/plugin` não roda: clique no + ao lado da caixa do prompt, depois Plugins, Add marketplace com `CaioCerano/os-deck`, depois Add plugin.
+In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `CaioCerano/os-deck`, then Add plugin.
 
-Responda `y` para adicionar o marketplace e escolha o escopo de usuário. Vale a partir da próxima sessão (ou depois de `/reload-plugins`). Se você usa o Flightdeck original, desative-o (`claude plugin disable flightdeck@claude-flightdeck`): os dois respondem a `/flightdeck`.
+Answer `y` to add the marketplace and choose the user scope. It takes effect from the next session (or after `/reload-plugins`). If you use the original Flightdeck, disable it (`claude plugin disable flightdeck@claude-flightdeck`): both answer to `/flightdeck`.
 
-## Para que serve
+## What it is for
 
-Acompanhar sessões longas sem rolar o transcript. Na visão `plan` (padrão):
+Following long sessions without scrolling the transcript. In the `plan` view (the default):
 
-| Seção | O que mostra |
+| Section | What it shows |
 |---|---|
-| Cabeçalho | O mascote (Clawd) e, ao lado, modelo, contexto, custo, limites 5h/7d e a conta ativa do `cswap` |
-| Git | Branch, ahead/behind e arquivos alterados do repositório da sessão |
-| GitHub | O PR da branch (estado, checks, review, issues que fecha) pelo `gh`; sem PR, os abertos do repositório |
-| Épico | A issue do Jira citada na sessão e os filhos do épico acima dela |
-| Plano | As tarefas (`TaskCreate`) agrupadas por trabalho e fase (Plano, Implementação, Qualidade), com os subagentes aninhados em cada tarefa |
-| Arquiteto | Cada consulta ao subagente arquiteto: o momento, o assunto e a recomendação |
-| Agentes | Subagentes por tipo, com modelo e tempo típico |
-| Linha do tempo | Tarefas e agentes lado a lado |
-| Log | Os eventos da sessão |
+| Header | The mascot (Clawd) and, beside it, model, context, cost, the 5h/7d limits and the active `cswap` account |
+| Git | Branch, ahead/behind and changed files of the session's repository |
+| GitHub | The branch's PR (state, checks, review, issues it closes) through `gh`; with no PR, the repository's open ones |
+| Epic | The Jira issue cited in the session and the children of the epic above it |
+| Plan | The tasks (`TaskCreate`) grouped by work and phase (Plano, Implementação, Qualidade), with the subagents nested under each task |
+| Architect | Each consult with the architect subagent: when, what about, and the advice |
+| Agents | Subagents by type, with model and typical time |
+| Timeline | Tasks and agents side by side |
+| Log | The session's events |
 
-Com a política de plano `always`, o mod pede ao Claude que quebre todo trabalho de vários passos em tarefas por fase, para o painel sempre ter um plano.
+With the `always` plan policy, the mod asks Claude to break any multi-step work into tasks by phase, so the dock always has a plan. The phase names are the `planPhases` option.
 
-O painel abre ao lado da conversa no terminal em tela cheia a partir de 110 colunas; em terminais menores aparece acima do prompt, resumido.
+The dock opens beside the conversation in a full-screen terminal from 110 columns; in smaller terminals it shows above the prompt, summarised.
 
-## Comandos
+## Commands
 
-`/os-deck` (ou `/flightdeck`):
+`/os-deck` (or `/flightdeck`):
 
-| Comando | O que faz |
+| Command | What it does |
 |---|---|
-| `/os-deck` | Abre o painel |
-| `/os-deck close` | Fecha o painel |
-| `/os-deck reset` | Zera o que o painel acumulou na sessão |
-| `/os-deck demo` | Preenche o plano com um exemplo |
-| `/os-deck hide <seção>` / `show <seção>` | Esconde ou mostra uma seção (guardado entre sessões), `pet` incluído |
-| `/os-deck sections` | Lista as seções e quais estão ocultas |
-| `/os-deck layout <auto\|compact\|wide\|mini>` | Troca o layout |
-| `/os-deck epic` | Lê do Jira o épico da issue ancorada |
-| `/os-deck github` | Lê o GitHub agora e diz o PR da branch (ou por que não leu) |
-| `/os-deck today` / `history` | O resumo de hoje, ou dos últimos 7 dias com total: turnos, tempo, tasks, subagentes, custo, pedidos de permissão |
-| `/os-deck pet` | Diz se o mascote está aparecendo e, se não, por quê (tamanho do painel, seção oculta, opção) |
-| `/os-deck account` (ou `conta`) | Lista as contas do `cswap`, com o uso de 5h/7d de cada uma |
-| `/os-deck account <n\|email\|alias>` | Troca a conta do Claude pelo `cswap` |
-| `/os-deck account next` | Passa para a próxima conta, como `cswap switch` sem alvo |
+| `/os-deck` | Opens the dock |
+| `/os-deck close` | Closes the dock |
+| `/os-deck reset` | Clears what the dock gathered this session |
+| `/os-deck demo` | Fills the plan with a sample |
+| `/os-deck hide <section>` / `show <section>` | Hides or shows a section (kept between sessions), `pet` included |
+| `/os-deck sections` | Lists the sections and which are hidden |
+| `/os-deck layout <auto\|compact\|wide\|mini>` | Changes the layout |
+| `/os-deck epic` | Reads the anchored issue's epic from Jira |
+| `/os-deck github` | Reads GitHub now and reports the branch's PR (or why it could not read) |
+| `/os-deck today` / `history` | Today's summary, or the last 7 days with a total: turns, time, tasks, subagents, cost, permission asks |
+| `/os-deck pet` | Says whether the mascot is shown and, if not, why (dock size, hidden section, option) |
+| `/os-deck account` (or `conta`) | Lists the `cswap` accounts, with each one's 5h/7d usage |
+| `/os-deck account <n\|email\|alias>` | Switches the Claude account through `cswap` |
+| `/os-deck account next` | Moves to the next account, like `cswap switch` with no target |
 
-No painel, a linha `account` do cabeçalho é um botão (atalho `a`): ela abre a lista das contas que você já tem no `cswap`, com o uso de 5h/7d de cada uma. Clicar numa conta faz a troca e mostra o resultado num aviso.
+In the dock, the header's `account` row is a button (shortcut `a`): it opens the list of the accounts you already have in `cswap`, with each one's 5h/7d usage. Clicking an account switches to it and shows the result in a toast.
 
-## O mascote
+## The mascot
 
-O cabeçalho da visão `plan` começa com o **Clawd**, um mascote em pixel art desenhado para este mod (24 colunas × 8 linhas). Ele usa meio-blocos (`▀`) com cor de frente e de fundo, então funciona em qualquer terminal, sem imagem. Ao lado dele, o resumo da sessão fica mais enxuto: o gauge de contexto é menor, os limites aparecem sem gauge e o número de requisições sai.
+The `plan` view's header starts with **Clawd**, a pixel-art mascot drawn for this mod (24 columns × 8 rows). It is made of half blocks (`▀`) with a foreground and a background colour, so it works in any terminal, with no image. Beside it, the session summary is leaner: the context gauge is shorter, the limits show without gauges, and the request count goes.
 
-| Estado | Quando |
+| State | When |
 |---|---|
-| À espera | sessão aberta, nada rodando (pisca e olha para os lados) |
-| Pensando | o turno começou e o modelo está respondendo |
-| Lendo | `Read`, `Grep`, `Glob`, `WebFetch`… no loop principal (livro aberto na frente, olhos correndo as páginas, uma página vira) |
-| Editando | `Edit`, `Write`… no loop principal (digita num teclado na frente dele, teclas acendem e o texto cresce acima da cabeça) |
-| Rodando um comando | `Bash` ou `PowerShell` no loop principal (um terminalzinho com `>_`: prompt, comando, saída) |
-| Com subagentes | um cubinho flutuante com olhos para cada subagente, na cor dele (a mesma do `■` na linha do plano): grandes até 4, mini até 11, depois `+N`. Ao terminar, fica um instante com `✦`; ao falhar, vermelho |
-| Compactou | o contexto foi compactado (achata sob um `⟲` e pula de volta, por 2,5 s) |
-| Pedindo permissão | uma ferramenta espera o seu sim (placa com "!") |
-| Deu erro | uma ferramenta do loop principal falhou (por 3 s) |
-| Concluiu | o turno terminou com resposta (pula, por 5 s) |
-| Dormindo | 5 min sem nada acontecer |
+| Waiting | session open, nothing running (blinks and glances around) |
+| Thinking | the turn started and the model is answering |
+| Reading | `Read`, `Grep`, `Glob`, `WebFetch`… in the main loop (an open book held in front, eyes running across the pages, a page turns) |
+| Editing | `Edit`, `Write`… in the main loop (typing on a keyboard in front of it, keys light up and the text grows above its head) |
+| Running a command | `Bash` or `PowerShell` in the main loop (a small terminal with `>_`: prompt, command, output) |
+| With subagents | a small floating cube with eyes for each subagent, in its colour (the same as the `■` on its plan row): big up to 4, mini up to 11, then `+N`. A finished one stays a moment with a `✦`; a failed one turns red |
+| Compacted | the context was compacted (squashes flat under a `⟲` and springs back, for 2.5 s) |
+| Asking permission | a tool waits for your yes (a sign with "!") |
+| Error | a main-loop tool failed (for 3 s) |
+| Done | the turn ended with an answer (hops, for 5 s) |
+| Sleeping | 5 min with nothing happening |
 
-Com o contexto em 85% ou mais, o mascote sua (uma gota ao lado da cabeça) e a legenda ganha `· ctx 92%`. O `▾` ao lado da legenda (atalho `p`) abre o detalhe: a ferramenta do loop principal com o tempo dela e os subagentes, cada um um botão que abre o cartão.
+With context at 85% or more, the mascot sweats (a drop beside its head) and the caption gets `· ctx 92%`. The `▾` next to the caption (shortcut `p`) opens the detail: the main loop's tool with its elapsed time, and the subagents, each a button that opens its card.
 
-Cada estado começa do primeiro quadro. Entre dois tipos de trabalho (pensando, lendo, editando, subagentes), o estado mostrado fica pelo menos 0,7 s, para chamadas rápidas não fazerem o pet piscar; permissão, erro, fim e descanso entram na hora.
+Each state starts from its first frame. Between two kinds of work (thinking, reading, editing, running, subagents), the state shown stays at least 0.7 s, so quick tool calls do not make the pet flicker; permission, error, compaction, done and rest cut in at once.
 
-O corpo usa a cor de destaque do skin ativo, mesmo no estilo `native`; sem skin, usa o laranja do Claude. A animação roda num módulo de superfície (`hooks/pet.tsx`) e só redesenha a região do pet quando o quadro muda, nunca o painel inteiro.
+The body wears the active skin's accent colour, in the `native` style too; with no skin, Claude's orange. The animation runs in a surface module (`hooks/pet.tsx`) and only redraws the pet's region when the frame changes, never the whole dock.
 
-O pet não aparece com o painel mais estreito que 58 colunas ou mais baixo que 30 linhas, para não tirar espaço do plano. No lugar dele, o cabeçalho mostra uma linha discreta com o tamanho atual e o que falta (`pet hidden: pane 52×28, needs 58×30`), e `/os-deck pet` explica por que ele está ou não aparecendo. Também não aparece no layout `mini` nem na visão `classic`. Para escondê-lo, use `/os-deck hide pet` (ou `mascote`); para desligar de vez, a opção `pet: false`.
+The pet sits beside the summary from 58 columns and on top of it in narrower docks. In a dock under 30 rows it is left out so it does not take room from the plan: in its place, the header shows a quiet line with the current size and what is needed (`pet hidden: pane 70×20, needs 24×30`), and `/os-deck pet` explains why it is or is not shown. It is also not drawn in the `mini` layout or the `classic` view. To hide it, use `/os-deck hide pet` (or `mascote`); to turn it off for good, the `pet: false` option.
 
-## Alertas e previsões
+## Alerts and forecasts
 
-Com a opção `alerts` (ligada por padrão), o OS-Deck manda uma notificação nativa pelo canal que você configurou no Claude Code (iTerm2, kitty, Ghostty, sino do terminal ou o app) quando:
+With the `alerts` option (on by default), OS-Deck sends a native notification through the channel you set up in Claude Code (iTerm2, kitty, Ghostty, the terminal bell or the app) when:
 
-- um pedido de permissão espera por você há `alertAfterS` segundos (30 por padrão); não no modo auto, em que quem responde é o classificador;
-- um turno de `alertTurnMin` minutos ou mais (2 por padrão) termina; não quando você mesmo o interrompe.
+- a permission ask has waited on you for `alertAfterS` seconds (30 by default); not in auto mode, where the classifier answers;
+- a turn of `alertTurnMin` minutes or more (2 by default) ends; not when you stopped it yourself.
 
-Sem canal de notificação, o aviso vira um toast no painel.
+With no notification channel, the alert becomes a toast in the dock.
 
-A linha de contexto do cabeçalho mostra quantos turnos faltam para o contexto encher (`~6 turns left`, ou `~6t` ao lado do mascote), pela média de crescimento dos últimos seis turnos; uma compactação recomeça a conta. No plano, a barra e cada grupo aberto mostram o tempo que falta (`~12m`), pela duração média das tasks concluídas nesta sessão; sem nenhuma concluída ainda, não há estimativa.
+The header's context line shows how many turns are left before the context fills (`~6 turns left`, or `~6t` beside the mascot), from the average growth of the last six turns; a compaction starts the count over. In the plan, the bar and each open group show the time left (`~12m`), from the average duration of the tasks finished this session; with none finished yet, there is no estimate.
 
-## Conta do Claude (cswap)
+## Claude account (cswap)
 
-Com o [claude-swap](https://github.com/realiti4/claude-swap) (`cswap`) instalado, o cabeçalho mostra a conta ativa (`account voce@empresa.com #2`) e acompanha as trocas feitas fora do OS-Deck: pelo terminal, pela menubar ou pelo `cswap auto`. O mod lê `cswap list --json` ao abrir a sessão, a cada 45 s e antes de cada prompt e medição (no máximo uma vez a cada 5 s). Sem o `cswap`, a linha não aparece e nada mais muda.
+With [claude-swap](https://github.com/realiti4/claude-swap) (`cswap`) installed, the header shows the active account (`account you@company.com #2`) and follows switches made outside OS-Deck: from the terminal, the menu bar or `cswap auto`. The mod reads `cswap list --json` when the session opens, every 45 s, and before each prompt and measurement (at most once every 5 s). Without `cswap`, the row does not show and nothing else changes.
 
-Por que isso é preciso: os limites 5h/7d da sessão vêm das respostas da API e só mudam quando chega uma resposta nova. Além disso, no macOS o `cswap` grava a credencial no Keychain, e o Claude Code mantém o token antigo em cache por cerca de 30 s. Então, logo depois de uma troca, a sessão ainda pode responder pela conta anterior. Para não exibir os limites da conta errada:
+Why this is needed: the session's 5h/7d limits come from API responses and only change when a new response arrives. Also, on macOS `cswap` writes the credential to the Keychain, and Claude Code keeps the old token cached for about 30 s. So right after a switch, the session may still answer through the previous account. To avoid showing the wrong account's limits:
 
-- quando a conta ativa muda, o log registra `account a → b` e os limites da sessão são descartados;
-- durante 35 s, as medições da sessão são ignoradas, e a conta aparece em âmbar com `switching…`;
-- enquanto a sessão não tem limites próprios, a linha de limites mostra os do `cswap` para a conta ativa, marcados com `~` (`~5h`). É uma leitura em cache do `cswap`, não um valor ao vivo. Fora dessa janela, os limites da sessão sempre prevalecem.
+- when the active account changes, the log records `account a → b` and the session's limits are dropped;
+- for 35 s, the session's measurements are ignored, and the account shows in amber with `switching…`;
+- while the session has no limits of its own, the limits row shows `cswap`'s for the active account, marked with `~` (`~5h`). This is `cswap`'s cached reading, not a live value. Outside that window, the session's limits always win.
 
-Uma troca feita fora do OS-Deck só é vista na próxima leitura: em até 45 s, ou antes, no próximo prompt. Se nesse intervalo chegarem limites da conta nova, eles também são descartados quando a troca é detectada, e o `~` aparece por 35 s. É uma imprecisão aceita.
+A switch made outside OS-Deck is only seen at the next read: within 45 s, or sooner, at the next prompt. If the new account's limits arrive in that interval, they are also dropped when the switch is detected, and the `~` shows for 35 s. This is an accepted inaccuracy.
 
-No Linux e no Windows o `cswap` grava em arquivo, e o Claude Code costuma aplicar a troca já na próxima mensagem. A janela de 35 s vale nos três sistemas, por precaução.
+On Linux and Windows `cswap` writes to a file, and Claude Code usually applies the switch from the next message. The 35 s window applies on all three systems, as a precaution.
 
-A troca roda `cswap switch <alvo> --json` por vetor de argumentos, sem shell. O alvo precisa ser um número de até 3 dígitos, um e-mail ou um alias (`[a-z0-9][\w.-]{0,31}`), e nunca pode começar com `-`. O `cswap` não aceita `--` antes do alvo, por isso essa validação é a proteção. `next` (ou `próxima`) é palavra reservada: um alias com esse nome só pode ser usado pelo número ou pelo e-mail.
+The switch runs `cswap switch <target> --json` by argument vector, with no shell. The target must be a number of up to 3 digits, an email or an alias (`[a-z0-9][\w.-]{0,31}`), and may never start with `-`. `cswap` does not accept `--` before the target, so this validation is the protection. `next` (or `próxima`) is a reserved word: an alias with that name can only be used by its number or email.
 
-## Capacidades usadas
+## Capabilities used
 
-Saída de `claude plugin validate mods/os-deck`:
+From `claude plugin validate mods/os-deck`:
 
-- Eventos: `session.start`, `session.end`, `session.measure`, `session.compact`, `turn.start`, `turn.step`, `turn.complete`, `agent.offer`, `agent.spawn`, `tool.check`, `command.run`, `classic.UserPromptSubmit`, `classic.PermissionRequest` e `classic.PostToolUse` (só para ler o modo de permissão), `ui.render` do `Pane`.
-- **Sensíveis:**
-  - `prompt.submit`: só lê o prompt para achar a chave de issue do Jira citada (ancora o plano). Não altera o prompt.
-  - `prompt.compose`: acrescenta ao prompt de sistema uma seção pedindo que as tarefas sejam agrupadas por trabalho e fase (desligável com `planHint` e `planPolicy`).
-  - `tool.call` e `session.append`: só observam as chamadas de ferramenta e as mensagens para desenhar o plano, os agentes, as permissões e o log. Passam tudo adiante sem negar, reescrever nem atrasar nada.
-  - `$.process.run`: roda `git --no-optional-locks -C <dir> status|for-each-ref|rev-list|rev-parse` por vetor de argumentos, sem shell, para a seção Git. Com a opção `github` ligada, roda `<ghCommand> pr view --json …` e `<ghCommand> pr list --state open --json …` no diretório da sessão (só leitura). Com a opção `cswap` ligada, roda também `<cswapCommand> list --json` (leitura da conta) e `<cswapCommand> switch [<alvo>] --json`, este só quando a pessoa pede com `/os-deck account <alvo>`. O alvo é validado antes (veja a seção acima), e o executável vem só do `userConfig`, nunca de um argumento do comando.
-  - `$.fs.exists`, `$.fs.list`: acha o repositório git da sessão.
-  - `$.tool.call`: lê issue e épico do Jira pelo conector Atlassian (`getJiraIssue`, `searchJiraIssuesUsingJql`), só com `jiraFetch` ligado ou com `/os-deck epic`. Cada leitura pede permissão como qualquer chamada de ferramenta.
-- `$.session.cwd`, `$.session.id`, `$.session.messages`, `$.session.usage`: diretório, id, histórico (para reconstruir o plano ao retomar) e uso da sessão.
-- `$.state` (`os-deck.*`): estado do painel na sessão, incluindo a ferramenta do loop principal e os horários de fim de turno e de falha que o mascote usa, a última leitura da conta (`os-deck.account`), para uma recarga do mod não contar como troca. Lê também, sem escrever, `skins.prefs`, `skins.custom` e `skins.isLight`, para usar as cores do skin.
-- `$.store`: seções ocultas, histórico do plano e o resumo de cada dia (`os-deck:history`, uns dois meses), entre sessões.
-- `$.ui.notify`: os alertas de permissão esperando e de turno longo (opção `alerts`). `$.clock.now`, `$.clock.every` (leitura da conta a cada 45 s), `$.clock.after` (nova leitura quando a janela de 35 s termina), ambos cancelados no fim da sessão, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
+- Events: `session.start`, `session.end`, `session.measure`, `session.compact`, `turn.start`, `turn.step`, `turn.complete`, `agent.offer`, `agent.spawn`, `tool.check`, `command.run`, `classic.UserPromptSubmit`, `classic.PermissionRequest` and `classic.PostToolUse` (only to read the permission mode), `ui.render` of the `Pane`.
+- **Sensitive:**
+  - `prompt.submit`: only reads the prompt to find a cited Jira issue key (which anchors the plan). It does not change the prompt.
+  - `prompt.compose`: adds a section to the system prompt asking for tasks grouped by work and phase (turned off with `planHint` and `planPolicy`).
+  - `tool.call` and `session.append`: only watch tool calls and messages to draw the plan, the agents, the permissions and the log. They pass everything on without denying, rewriting or delaying anything.
+  - `$.process.run`: runs `git --no-optional-locks -C <dir> status|for-each-ref|rev-list|rev-parse` by argument vector, with no shell, for the Git section. With the `github` option on, it runs `<ghCommand> pr view --json …` and `<ghCommand> pr list --state open --json …` in the session's directory (read only). With the `cswap` option on, it also runs `<cswapCommand> list --json` (reading the account) and `<cswapCommand> switch [<target>] --json`, the latter only when you ask with `/os-deck account <target>`. The target is validated first (see the section above), and the executables come only from `userConfig`, never from a command argument.
+  - `$.fs.exists`, `$.fs.list`: find the session's git repository.
+  - `$.tool.call`: reads the Jira issue and epic through the Atlassian connector (`getJiraIssue`, `searchJiraIssuesUsingJql`), only with `jiraFetch` on or with `/os-deck epic`. Each read asks permission like any tool call.
+- `$.session.cwd`, `$.session.id`, `$.session.messages`, `$.session.usage`: the session's directory, id, history (to rebuild the plan when resuming) and usage.
+- `$.state` (`os-deck.*`): the dock's state in the session, including the main loop's tool and the turn-end and failure times the mascot uses, and the last account reading (`os-deck.account`), so a reload of the mod does not count as a switch. It also reads, without writing, `skins.prefs`, `skins.custom` and `skins.isLight`, to use the skin's colours.
+- `$.store`: hidden sections, the plan's history and each day's summary (`os-deck:history`, about two months), between sessions.
+- `$.ui.notify`: the alerts for a waiting ask and a long turn (the `alerts` option). `$.clock.now`, `$.clock.every` (reading the account every 45 s), `$.clock.after` (a new reading when the 35 s window ends, and the ask alerts), all cancelled when the session ends, `$.command.register`, `$.ui.open`, `$.ui.close`, `$.ui.resolve`, `$.ui.status`, `$.ui.toast`.
 
-Comandos de git e texto do log passam por uma redação que esconde tokens, senhas e chaves.
+Git commands and log text go through a redaction that hides tokens, passwords and keys.
 
-## Configuração
+## Configuration
 
 ```text
 /plugin configure os-deck@os-mods
 ```
 
-As principais: `view` (`plan` ou `classic`), `layout`, `panels` (quais seções e em que ordem), `palette` (`skin`, `theme`, `pastel`), `background` (cor de fundo em hex, para casar com o terminal), `planPolicy` e `planPhases`, `architectPattern` (quais agentes contam como arquiteto), `jiraSite` e `jiraFetch`, `openOnStart`, `statusLine`, `pet` (o mascote no cabeçalho, ligado por padrão), `cswap` (liga a linha de conta e o `/os-deck account`, ligado por padrão), `cswapCommand`, `github` e `ghCommand` (a seção GitHub), `alerts`, `alertAfterS` e `alertTurnMin` (os alertas) (o executável do `cswap`, quando o Claude Code não o acha no `PATH`). A descrição de cada uma está no `plugin.json`.
+The main ones: `view` (`plan` or `classic`), `layout`, `panels` (which sections and in what order), `palette` (`skin`, `theme`, `pastel`), `background` (a hex background colour, to match your terminal), `planPolicy` and `planPhases`, `architectPattern` (which agents count as the architect), `jiraSite` and `jiraFetch`, `openOnStart`, `statusLine`, `pet` (the mascot in the header, on by default), `cswap` (turns on the account row and `/os-deck account`, on by default), `cswapCommand` (the `cswap` executable, when Claude Code cannot find it on the `PATH`), `github` and `ghCommand` (the GitHub section), `alerts`, `alertAfterS` and `alertTurnMin` (the alerts). Each one is described in `plugin.json`.
 
-## Dependências de sistema
+## System dependencies
 
-`git` no `PATH`, só para a seção Git (sem ele, a seção fica vazia). O [GitHub CLI](https://cli.github.com) (`gh`, autenticado) é opcional, só para a seção GitHub: sem ele, a seção não aparece e `/os-deck github` diz por quê. O conector Atlassian é opcional, só para o épico do Jira. O [claude-swap](https://github.com/realiti4/claude-swap) (`cswap`) também é opcional, só para a linha de conta e o `/os-deck account`. O mod não o instala: sem ele, a linha não aparece.
+`git` on the `PATH`, only for the Git section (without it, the section stays empty). The [GitHub CLI](https://cli.github.com) (`gh`, signed in) is optional, only for the GitHub section: without it, the section does not show and `/os-deck github` says why. The Atlassian connector is optional, only for the Jira epic. [claude-swap](https://github.com/realiti4/claude-swap) (`cswap`) is optional too, only for the account row and `/os-deck account`. The mod does not install it: without it, the row does not show.
 
-## Como remover
+## Uninstall
 
 ```text
 claude plugin uninstall os-deck@os-mods
 ```
 
-## Versão do Claude Code validada
+## Claude Code versions validated
 
-2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. O mascote foi validado pelo kit de testes do 2.1.302, que roda o módulo de superfície; ainda não foi visto numa sessão interativa. Ubuntu e Windows não validados; o mod não depende do sistema, além do `git` e, opcionalmente, do `cswap`.
+2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.4.0 passed the 110 tests of the 2.1.329 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
 
-## Licença
+## License
 
-MIT, herdada do Flightdeck. Veja [LICENSE](LICENSE).
+MIT, inherited from Flightdeck. See [LICENSE](LICENSE).
