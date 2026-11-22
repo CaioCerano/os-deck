@@ -4,6 +4,10 @@
 
 Mods do Claude Code. Por enquanto, um:
 
+**122 testes automatizados** (95 escritos para o os-deck) · **[changelog de cada versão](mods/os-deck/CHANGELOG.pt-BR.md)** · [o que o os-deck acrescenta ao Flightdeck](mods/os-deck/README.pt-BR.md#o-que-o-os-deck-acrescenta-ao-flightdeck)
+
+![O mascote do os-deck mudando de estado enquanto a sessão trabalha](mods/os-deck/docs/media/mascot-states.gif)
+
 - **[os-deck](mods/os-deck/README.pt-BR.md)**: painel lateral que mostra, ao vivo, o que a sessão do Claude Code está fazendo: o plano em tarefas por fase com os subagentes de cada uma, o mascote Clawd, git e GitHub, o épico do Jira, alertas, previsões e o log da sessão. Fork do [Flightdeck](https://github.com/scasella/claude-flightdeck) (MIT).
 
 ## Instalar

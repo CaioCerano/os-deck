@@ -2,9 +2,28 @@
 
 [English](README.md) · **Português**
 
+**122 testes automatizados** (95 escritos para o os-deck) · **[changelog de cada versão](CHANGELOG.pt-BR.md)** · [o que é original aqui](#o-que-o-os-deck-acrescenta-ao-flightdeck)
+
+![O mascote do os-deck mudando de estado: pensando, lendo, editando, rodando um comando, subagentes, esperando seu ok, falhando, compactando, pronto, parado e dormindo](docs/media/mascot-states.gif)
+
 Painel lateral (dock) que mostra, ao vivo, o que a sessão do Claude Code está fazendo: o plano quebrado em tarefas por fase, os subagentes de cada tarefa, as consultas ao arquiteto, as checagens de permissão, o estado do git, o épico do Jira e o log da sessão. As cores seguem o skin ativo do mod [skins](https://github.com/hellosverre/claude-skins), quando ele está ligado.
 
 É um fork do [Flightdeck](https://github.com/scasella/claude-flightdeck) (MIT, de Stephen Casella), adaptado para o nosso fluxo. A documentação original está em [docs/flightdeck-original.md](docs/flightdeck-original.md).
+
+## O que o os-deck acrescenta ao Flightdeck
+
+O os-deck saiu do [Flightdeck](https://github.com/scasella/claude-flightdeck) 0.4.0, que fornece a base do dock: sinais vitais, linha do tempo do architect, gate de permissões, cartões de agentes e log da sessão. Tudo abaixo foi feito para o os-deck e não existe no Flightdeck.
+
+| Adição | O que faz |
+|---|---|
+| **[Mascote](#o-mascote)** | Um Clawd animado em pixel art com 11 estados que seguem a sessão, e um cubo para cada subagente de verdade |
+| **[cswap](#conta-do-claude-cswap)** | A conta do Claude ativa e os limites dela, trocada pelo próprio dock |
+| **GitHub** | O PR da branch com checks, review e as issues que ele fecha |
+| **[Alertas](#alertas-e-previsões)** | Uma notificação quando um pedido fica esperando ou um turno longo termina |
+| **[Previsões](#alertas-e-previsões)** | Turnos até o contexto encher, tempo restante de cada fase do plano |
+| **Histórico** | Turnos, tempo, tarefas, subagentes, custo e espera por dia, entre sessões (`/os-deck today`, `/os-deck history`) |
+| **Plano, git e Jira** | Tarefas em árvore por fase com seus subagentes, o estado de cada repositório, o épico do Jira |
+| **Testes** | 95 testes novos, além de 27 mantidos dos 28 do Flightdeck |
 
 ## Autor
 
@@ -163,7 +182,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Versão do Claude Code validada
 
-2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.4.0 passou nos 110 testes do kit de testes do 2.1.329 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
+2.1.301 no macOS (Darwin 25.3). A conta via `cswap` foi validada no 2.1.302 no macOS, com o claude-swap e duas contas. A versão 0.4.1 passou nos seus 122 testes no kit de testes do 2.1.330 no Windows 11, que roda o painel e o módulo de superfície num terminal simulado; ainda não foi vista numa sessão interativa. Ubuntu não validado; o mod não depende do sistema, além do `git` e, opcionalmente, do `gh` e do `cswap`.
 
 ## Licença
 

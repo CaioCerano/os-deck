@@ -2,9 +2,28 @@
 
 **English** · [Português](README.pt-BR.md)
 
+**122 automated tests** (95 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
+
+![The os-deck mascot changing states: thinking, reading, editing, running a command, subagents, waiting for your ok, failing, compacting, done, idle and asleep](docs/media/mascot-states.gif)
+
 A side dock that shows, live, what your Claude Code session is doing: the plan broken into tasks by phase, each task's subagents, architect consults, permission checks, git and GitHub state, the Jira epic and the session log. Its colours follow the active skin of the [skins](https://github.com/hellosverre/claude-skins) mod when that mod is on.
 
 It is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) (MIT, by Stephen Casella), adapted to our workflow. The original documentation is in [docs/flightdeck-original.md](docs/flightdeck-original.md).
+
+## What os-deck adds over Flightdeck
+
+os-deck forked [Flightdeck](https://github.com/scasella/claude-flightdeck) at 0.4.0, which provides the base dock: main vitals, architect timeline, permission gate, agent cards and session log. Everything below was built for os-deck and is not in Flightdeck.
+
+| Addition | What it does |
+|---|---|
+| **[Mascot](#the-mascot)** | An animated pixel Clawd with 11 states that follow the session, and a cube for each real subagent |
+| **[cswap](#claude-account-cswap)** | The active Claude account and its limits, switched from the dock |
+| **GitHub** | The branch's PR with its checks, review and the issues it closes |
+| **[Alerts](#alerts-and-forecasts)** | A notification when an ask is left waiting or a long turn ends |
+| **[Forecasts](#alerts-and-forecasts)** | Turns left before the context fills, time left for each phase of the plan |
+| **History** | Turns, time, tasks, subagents, cost and wait per day, across sessions (`/os-deck today`, `/os-deck history`) |
+| **Plan, git and Jira** | Tasks as a tree by phase with their subagents, the state of each repository, the Jira epic |
+| **Tests** | 95 new tests, on top of 27 kept from Flightdeck's 28 |
 
 ## Author
 
@@ -163,7 +182,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Claude Code versions validated
 
-2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.4.0 passed the 110 tests of the 2.1.329 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
+2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.4.1 passed its 122 tests on the 2.1.330 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
 
 ## License
 
