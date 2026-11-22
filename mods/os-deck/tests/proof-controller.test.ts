@@ -484,3 +484,27 @@ test('L5: another session id, with no end seen, draws no old evidence', async ()
   w.session = `${w.session}-resumed`
   expect((await view()).tasks).toEqual([])
 })
+
+test('L1: a run that kept no output shows none of the run before', async () => {
+  const { w, $, ops, allow, work, endTurn } = world()
+  await allow()
+  await work()
+  await endTurn()
+  w.files['package.json'] = JSON.stringify({ scripts: { test: 'bun test --bail' } })
+  await proof.pressVerify($, ops, ROOT)
+  await pause(80)
+  await proof.pressShowLog(ops, ROOT, 'test')
+  expect(proof.logShown()?.text).toBe('no output kept')
+})
+
+test('L2: the runs that use up claims are kept past a hundred', async () => {
+  const { w, $, ops, allow, work, endTurn } = world()
+  await allow()
+  await work()
+  await endTurn()
+  const ran = w.p.attempts[0]!
+  w.p = { ...w.p, attempts: Array.from({ length: 150 }, (_, i) => ({ ...ran, id: `kept${i}` })) }
+  await proof.pressVerify($, ops, ROOT)
+  await pause(80)
+  expect(w.p.attempts.length).toBe(151)
+})
