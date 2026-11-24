@@ -9,7 +9,7 @@ import { redact } from '../redact'
 import { runAttempt } from './attempt'
 import { digestOf, grantFrom } from './grant'
 import { loadRecords, saveAttempt, saveChecks, saveClaim, saveReview } from './history'
-import { asOwing, completeTask, describeTask, dropTask, endsClaims, noteEdit, rootsToRun, startTask, waitTask, withdrawClaims } from './lifecycle'
+import { asOwing, completeTask, describeTask, dropTask, endsClaims, MAX_PATH, noteEdit, rootsToRun, startTask, waitTask, withdrawClaims } from './lifecycle'
 import type { Manifest, ProofActions, ProofViewModel } from './model'
 import { editPath, foldCase, placedPath, slashed } from './names'
 import { pastLabel, rootsNow } from './present'
@@ -42,8 +42,6 @@ const revoked = new Set<string>()
  * Each holds the path as it will run once allowed: until then where it lands is not looked at.
  */
 const editing = new Map<string, { path: string; editor: string; isRunning: boolean }>()
-/** Past this a path is not walked: each step up is another stat, and the walk holds the tool's call. */
-const MAX_PLACED = 1024
 /** The order reads began in, which no clock changes, and the last applied of each session. */
 let lastRead = 0
 /** Reads begun no later than this are of a session that is over. */
@@ -242,7 +240,8 @@ const editedIn = (x: { tool: string; input: Record<string, unknown> }): string |
 async function placeEdit($: EngineInterface, roots: readonly string[], named: string): Promise<string> {
   // The session's folder says which system this is, and no more.
   const path = editPath(named, await $.session.cwd())
-  return path && path.length <= MAX_PLACED ? landedAt($, roots, path) : `unresolved path: ${named}`
+  // A longer one is not walked: each step up is another stat, and the walk holds the tool's call.
+  return path && path.length <= MAX_PATH ? landedAt($, roots, path) : `unresolved path: ${named}`
 }
 
 /** Where an edit landed, links followed, spelled from the allowed root it landed in. */

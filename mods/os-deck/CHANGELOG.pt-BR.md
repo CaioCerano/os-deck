@@ -4,7 +4,7 @@
 
 ## os-deck 0.5.2
 
-O que a revisão independente da 0.5.1 encontrou. Nada disso deixava um agente chegar a Verified.
+O que a revisão independente da 0.5.1 encontrou.
 
 - **Uma edição que ainda espera a sua permissão quando a tarefa termina impede que a tarefa seja verificada.** Ela era localizada no fim da tarefa, então uma pasta religada antes de você liberar podia esconder onde ela caiu.
 - **O caminho de uma edição não é mais seguido por links antes de você liberar.**

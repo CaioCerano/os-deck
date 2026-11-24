@@ -16,7 +16,8 @@ const MAX_BASELINE_FILES = 100_000
 const MAX_CHANGED = 5_000
 const MAX_EDITS = 256
 const MAX_EDITORS = 16
-const MAX_PATH = 1024
+/** The longest path kept by name, or walked to see where it leads. */
+export const MAX_PATH = 1024
 const MAX_OVERLAP = 16
 const MAX_DESCRIPTIONS = 200
 const MAX_TEXT = 2_000

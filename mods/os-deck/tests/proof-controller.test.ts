@@ -1404,11 +1404,12 @@ test('W2: an edit is not resolved through links before it is allowed', async () 
   const { w, $, allow, task } = world('C:/repo')
   await allow()
   await task('1', 'in_progress')
-  const named = 'C:/repo/link/x.ts'
+  const link = 'C:/repo/link'
+  const named = `${link}/x.ts`
   const fs = $.fs as unknown as { stat: (path: string, o?: { resolve?: boolean }) => Promise<unknown> }
   const stat = fs.stat
   const resolved: string[] = []
-  fs.stat = async (path, o) => (o?.resolve && path.startsWith(named.slice(0, -5)) && resolved.push(path), stat(path, o))
+  fs.stat = async (path, o) => (o?.resolve && path.startsWith(link) && resolved.push(path), stat(path, o))
   proof.proofEditStarted('w2', { tool: 'Write', input: { file_path: named }, agentId: null })
   await task('1', 'pending')
   await task('1', 'in_progress')

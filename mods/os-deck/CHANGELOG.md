@@ -4,7 +4,7 @@
 
 ## os-deck 0.5.2
 
-What the independent review of 0.5.1 found. None of it let an agent reach Verified.
+What the independent review of 0.5.1 found.
 
 - **An edit still waiting on your permission as its task completes keeps that task from verifying.** It was placed as the task completed, so a folder relinked before you allowed it could hide where it landed.
 - **An edit's path is no longer followed through links before you allow it.**
