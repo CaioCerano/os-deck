@@ -324,8 +324,9 @@ export function proofEditStarted(id: string, x: { tool: string; input: Record<st
 export async function proofEditRuns(id: string, $: EngineInterface, ops: ProofOps, x: { tool: string; input: Record<string, unknown>; agentId: string | null }): Promise<void> {
   const named = editedIn(x)
   if (!named) return
-  // As allowed, which a settings hook may have rewritten: what runs is this, not what was asked.
-  editing.set(id, { path: named, editor: x.agentId ?? '', isRunning: true })
+  // As allowed, which a settings hook may have rewritten: what runs is this, not what was asked. Only a
+  // call begun here: none settles one whose start was not heard, and it would be every task's edit for good.
+  if (editing.has(id)) editing.set(id, { path: named, editor: x.agentId ?? '', isRunning: true })
   const { allowed, session } = await ops.proof()
   if (allowed.length === 0) return
   const path = await placeEdit($, allowed.map(a => a.grant.root), named)

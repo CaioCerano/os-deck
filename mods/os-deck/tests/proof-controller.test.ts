@@ -1451,6 +1451,17 @@ test('W4: a path a settings hook rewrote is placed as it ran, after it returns a
   expect(w.p.claims[0]?.outside).toEqual(['C:/elsewhere/x.ts'])
 })
 
+test('W6: a call whose start was not heard leaves no edit under way behind it', async () => {
+  const { w, $, ops, allow, task } = world('C:/repo')
+  await allow()
+  await proof.proofEditRuns('w6', $, ops, { tool: 'Write', input: { file_path: 'C:/elsewhere/x.ts' }, agentId: 'agent-z' })
+  await pause(20)
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  expect(w.p.claims[0]?.outside).toEqual([])
+})
+
 test('W5: a path too long to walk is outside, after a few stats at most', async () => {
   const { w, $, ops, allow, task } = world('C:/repo')
   await allow()
