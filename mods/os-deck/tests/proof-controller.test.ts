@@ -1148,7 +1148,7 @@ test('S2: a review of no change covers no repository allowed after it', async ()
 
 for (const how of ['a link, then folders not made yet', 'a link that leads nowhere yet'] as const)
   test(`S3: an edit in flight through ${how} is outside`, async () => {
-    const { w, allow, task } = world()
+    const { w, $, ops, allow, task } = world()
     await allow()
     await task('1', 'in_progress')
     const file = `${ROOT}/linked/new/deeper/x.ts`
@@ -1158,7 +1158,9 @@ for (const how of ['a link, then folders not made yet', 'a link that leads nowhe
       w.dangling = [`${ROOT}/linked`]
     } else w.links[`${ROOT}/linked`] = '/elsewhere'
     const id = `link-${w.session}`
-    proof.proofEditStarted(id, { tool: 'Write', input: { file_path: file }, agentId: null })
+    const call = { tool: 'Write', input: { file_path: file }, agentId: null }
+    proof.proofEditStarted(id, call)
+    await proof.proofEditRuns(id, $, ops, call)
     w.files['a.ts'] = 'two'
     await task('1', 'completed')
     proof.proofEditSettled(id)
@@ -1197,7 +1199,7 @@ test('T1: an inside edit is inside, however it is spelled', async () => {
 })
 
 test('T2: a dangling link named by an alias still leads nowhere', async () => {
-  const { w, allow, task } = world()
+  const { w, $, ops, allow, task } = world()
   await allow()
   await task('1', 'in_progress')
   // No listing has this name: only stat knows what it is.
@@ -1205,7 +1207,9 @@ test('T2: a dangling link named by an alias still leads nowhere', async () => {
   w.dangling = [alias]
   w.missing = [`${alias}/x.ts`]
   const id = `alias-${w.session}`
-  proof.proofEditStarted(id, { tool: 'Write', input: { file_path: `${alias}/x.ts` }, agentId: null })
+  const call = { tool: 'Write', input: { file_path: `${alias}/x.ts` }, agentId: null }
+  proof.proofEditStarted(id, call)
+  await proof.proofEditRuns(id, $, ops, call)
   w.files['a.ts'] = 'two'
   await task('1', 'completed')
   proof.proofEditSettled(id)
