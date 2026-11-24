@@ -2,6 +2,15 @@
 
 [English](CHANGELOG.md) · **Português**
 
+## os-deck 0.5.2
+
+O que a revisão independente da 0.5.1 encontrou. Nada disso deixava um agente chegar a Verified.
+
+- **Uma edição que ainda espera a sua permissão quando a tarefa termina impede que a tarefa seja verificada.** Ela era localizada no fim da tarefa, então uma pasta religada antes de você liberar podia esconder onde ela caiu.
+- **O caminho de uma edição não é mais seguido por links antes de você liberar.**
+- **Uma edição cujo caminho um hook das configurações reescreveu é localizada onde rodou,** tanto ao terminar quanto antes de escrever.
+- **Um caminho com mais de 1.024 caracteres fica fora, sem ser percorrido:** um muito profundo podia segurar a chamada da ferramenta por segundos.
+
 ## os-deck 0.5.1
 
 - **Corrigido um Verified falso da 0.5.0.** Numa pasta do Windows que diferencia maiúsculas, uma edição numa pasta vizinha que só muda na caixa (`Repo` ao lado de `repo`) contava como dentro do repositório liberado. Agora ela fica fora, e a tarefa aparece como Inconclusive.

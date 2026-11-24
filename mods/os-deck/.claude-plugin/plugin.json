@@ -1,6 +1,6 @@
 {
   "name": "os-deck",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "OS-Deck: a live agent dock for Claude Code (fork of Flightdeck). Plan by phase with nested subagents, an architect on call, permissions, git and GitHub, the Jira epic, a timeline and the session log, in the active skin's colours, with the Clawd mascot and Agent Proof, which checks what agents claim is done",
   "author": {
     "name": "Caio Cerano",

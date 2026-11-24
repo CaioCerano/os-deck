@@ -37,8 +37,13 @@ const tails = new Map<string, string>()
 const queued = new Map<string, object>()
 /** Runs whose allowance ended under them: what they still report is no evidence. */
 const revoked = new Set<string>()
-/** File tools' calls under way: what lands before it returns was done in whatever completed meanwhile. */
-const editing = new Map<string, { path: string; editor: string }>()
+/**
+ * File tools' calls under way: what lands before it returns was done in whatever completed meanwhile.
+ * Each holds the path as it will run once allowed: until then where it lands is not looked at.
+ */
+const editing = new Map<string, { path: string; editor: string; isRunning: boolean }>()
+/** Past this a path is not walked: each step up is another stat, and the walk holds the tool's call. */
+const MAX_PLACED = 1024
 /** The order reads began in, which no clock changes, and the last applied of each session. */
 let lastRead = 0
 /** Reads begun no later than this are of a session that is over. */
@@ -214,10 +219,13 @@ async function stillThere($: EngineInterface, claim: ProofClaim): Promise<boolea
   return false
 }
 
-/** The file tools' calls under way, noted on the tasks open now. */
+/**
+ * The file tools' calls under way, noted on the tasks open now. One not yet allowed is placed nowhere:
+ * resolving it would follow links before anyone allowed the call, and they can lead elsewhere by the time it runs.
+ */
 async function noteEditing($: EngineInterface, ops: ProofOps, session: string, roots: readonly string[]): Promise<void> {
-  for (const { path, editor } of [...editing.values()]) {
-    await noteLanded(ops, session, await placeEdit($, roots, path), editor)
+  for (const { path, editor, isRunning } of [...editing.values()]) {
+    await noteLanded(ops, session, isRunning ? await placeEdit($, roots, path) : `not yet run: ${path}`, editor)
   }
 }
 
@@ -234,7 +242,7 @@ const editedIn = (x: { tool: string; input: Record<string, unknown> }): string |
 async function placeEdit($: EngineInterface, roots: readonly string[], named: string): Promise<string> {
   // The session's folder says which system this is, and no more.
   const path = editPath(named, await $.session.cwd())
-  return path ? landedAt($, roots, path) : `unresolved path: ${named}`
+  return path && path.length <= MAX_PLACED ? landedAt($, roots, path) : `unresolved path: ${named}`
 }
 
 /** Where an edit landed, links followed, spelled from the allowed root it landed in. */
@@ -307,16 +315,18 @@ export async function proofTaskTool(
 /** A tool's call as it begins. No state, no wait. */
 export function proofEditStarted(id: string, x: { tool: string; input: Record<string, unknown>; agentId: string | null }): void {
   const path = editedIn(x)
-  if (path) editing.set(id, { path, editor: x.agentId ?? '' })
+  if (path) editing.set(id, { path, editor: x.agentId ?? '', isRunning: false })
 }
 
 /**
  * That call allowed, its write next: where it lands now, as by its return a folder it names can lead
  * elsewhere. Never sooner: resolving follows links, a share's as well, and a person may refuse the call.
  */
-export async function proofEditRuns($: EngineInterface, ops: ProofOps, x: { tool: string; input: Record<string, unknown>; agentId: string | null }): Promise<void> {
+export async function proofEditRuns(id: string, $: EngineInterface, ops: ProofOps, x: { tool: string; input: Record<string, unknown>; agentId: string | null }): Promise<void> {
   const named = editedIn(x)
   if (!named) return
+  // As allowed, which a settings hook may have rewritten: what runs is this, not what was asked.
+  editing.set(id, { path: named, editor: x.agentId ?? '', isRunning: true })
   const { allowed, session } = await ops.proof()
   if (allowed.length === 0) return
   const path = await placeEdit($, allowed.map(a => a.grant.root), named)
@@ -334,12 +344,14 @@ export function proofEditSettled(id: string): void {
 export async function proofToolDone(
   $: EngineInterface,
   ops: ProofOps,
-  x: { tool: string; input: Record<string, unknown>; hasFailed: boolean; agentId: string | null },
+  x: { id: string; tool: string; input: Record<string, unknown>; hasFailed: boolean; agentId: string | null },
 ): Promise<void> {
   const isEdit = EDIT_TOOLS.has(x.tool)
   // A failed shell call can have changed files too, and an MCP tool writes as it likes.
   if (!isEdit && x.tool !== 'Bash' && x.tool !== 'PowerShell' && !x.tool.startsWith('mcp__')) return
-  await proofToolRan($, ops, x.hasFailed ? null : editedIn(x), x.agentId)
+  // The path as it ran, not as it was asked.
+  const ran = editing.get(x.id)
+  await proofToolRan($, ops, x.hasFailed ? null : ran?.isRunning ? ran.path : editedIn(x), x.agentId)
 }
 
 // ---------------------------------------------------------------- runs

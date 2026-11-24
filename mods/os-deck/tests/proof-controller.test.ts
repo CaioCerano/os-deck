@@ -1245,8 +1245,12 @@ for (const when of ['returned', 'in flight'] as const)
       const path = how === 'named' ? beside : `${ROOT}/alias/real-work.md`
       if (how !== 'named') w.links[path] = beside
       const id = `backslash-${w.session}`
+      const call = { tool: 'Write', input: { file_path: path }, agentId: null }
       if (when === 'returned') await proof.proofToolRan($, ops, path, null)
-      else proof.proofEditStarted(id, { tool: 'Write', input: { file_path: path }, agentId: null })
+      else {
+        proof.proofEditStarted(id, call)
+        await proof.proofEditRuns(id, $, ops, call)
+      }
       w.files['a.ts'] = 'two'
       await task('1', 'completed')
       proof.proofEditSettled(id)
@@ -1369,10 +1373,102 @@ for (const [named, before] of [['C:/notes/x.md', 'C:/notes/x.md'], ['C:/repo/sub
     await task('1', 'in_progress')
     const call = { tool: 'Write', input: { file_path: named }, agentId: null }
     w.links = { [named]: before }
-    await proof.proofEditRuns($, ops, call)
+    await proof.proofEditRuns('r3', $, ops, call)
     w.links = { [named]: 'C:/repo/sub/x.md' }
-    await proof.proofToolDone($, ops, { ...call, hasFailed: false })
+    await proof.proofToolDone($, ops, { ...call, id: 'r3', hasFailed: false })
     w.files['a.ts'] = 'two'
     await task('1', 'completed')
     expect(w.p.claims[0]?.outside.length).toBe(1)
   })
+
+// ---------------------------------------------------------------- what the 0.5.1 review found
+
+test('W1: an edit waiting on permission as its task completes, relinked before it runs, is outside', async () => {
+  const { w, $, ops, allow, task } = world('C:/repo')
+  await allow()
+  await task('1', 'in_progress')
+  const named = 'C:/repo/link/work.ts'
+  const call = { tool: 'Write', input: { file_path: named }, agentId: null }
+  w.links = { [named]: 'C:/repo/work.ts' }
+  proof.proofEditStarted('w1', call)
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  w.links = { [named]: 'C:/elsewhere/work.ts' }
+  await proof.proofEditRuns('w1', $, ops, call)
+  await proof.proofToolDone($, ops, { ...call, id: 'w1', hasFailed: false })
+  proof.proofEditSettled('w1')
+  expect(w.p.claims[0]?.outside).toEqual([`not yet run: ${named}`])
+})
+
+test('W2: an edit is not resolved through links before it is allowed', async () => {
+  const { w, $, allow, task } = world('C:/repo')
+  await allow()
+  await task('1', 'in_progress')
+  const named = 'C:/repo/link/x.ts'
+  const fs = $.fs as unknown as { stat: (path: string, o?: { resolve?: boolean }) => Promise<unknown> }
+  const stat = fs.stat
+  const resolved: string[] = []
+  fs.stat = async (path, o) => (o?.resolve && path.startsWith(named.slice(0, -5)) && resolved.push(path), stat(path, o))
+  proof.proofEditStarted('w2', { tool: 'Write', input: { file_path: named }, agentId: null })
+  await task('1', 'pending')
+  await task('1', 'in_progress')
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  proof.proofEditSettled('w2')
+  expect(resolved).toEqual([])
+})
+
+test('W3: an edit allowed and running as its task completes is placed where it lands', async () => {
+  const { w, $, ops, allow, task } = world('C:/repo')
+  await allow()
+  await task('1', 'in_progress')
+  const named = 'C:/repo/link/work.ts'
+  const call = { tool: 'Write', input: { file_path: named }, agentId: null }
+  proof.proofEditStarted('w3', call)
+  await proof.proofEditRuns('w3', $, ops, call)
+  w.links = { [named]: 'C:/elsewhere/work.ts' }
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  proof.proofEditSettled('w3')
+  expect(w.p.claims[0]?.outside).toEqual(['C:/elsewhere/work.ts'])
+})
+
+test('W4: a path a settings hook rewrote is placed as it ran, after it returns as well', async () => {
+  const { w, $, ops, allow, task } = world('C:/repo')
+  await allow()
+  await task('1', 'in_progress')
+  const asked = { tool: 'Write', input: { file_path: 'C:/repo/a.ts' }, agentId: null }
+  const ran = { ...asked, input: { file_path: 'C:/repo/link/x.ts' } }
+  proof.proofEditStarted('w4', asked)
+  await proof.proofEditRuns('w4', $, ops, ran)
+  w.links = { 'C:/repo/link/x.ts': 'C:/elsewhere/x.ts' }
+  await proof.proofToolDone($, ops, { ...asked, id: 'w4', hasFailed: false })
+  proof.proofEditSettled('w4')
+  await pause(20)
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  expect(w.p.claims[0]?.outside).toEqual(['C:/elsewhere/x.ts'])
+})
+
+test('W5: a path too long to walk is outside, after a few stats at most', async () => {
+  const { w, $, ops, allow, task } = world('C:/repo')
+  await allow()
+  await task('1', 'in_progress')
+  const named = `C:/repo/${'d/'.repeat(600)}x.ts`
+  const fs = $.fs as unknown as { stat: (path: string, o?: { resolve?: boolean }) => Promise<unknown> }
+  const stat = fs.stat
+  let stats = 0
+  fs.stat = async (path, o) => (path.startsWith('C:/repo/d/') && stats++, stat(path, o))
+  w.missing = Array.from({ length: 600 }, (_, i) => `C:/repo/${'d/'.repeat(i + 1)}`.slice(0, -1)).concat(named)
+  const call = { tool: 'Write', input: { file_path: named }, agentId: null }
+  proof.proofEditStarted('w5', call)
+  await proof.proofEditRuns('w5', $, ops, call)
+  await proof.proofToolDone($, ops, { ...call, id: 'w5', hasFailed: false })
+  proof.proofEditSettled('w5')
+  await pause(20)
+  w.files['a.ts'] = 'two'
+  await task('1', 'completed')
+  expect(stats).toBe(0)
+  // Too long to keep by name as well: outside all the same.
+  expect(w.p.claims[0]?.outside.length).toBe(1)
+})

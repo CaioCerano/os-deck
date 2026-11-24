@@ -1233,7 +1233,7 @@ export const register: Register = (on, options) => {
     }
     // First, by itself: what fails below must not lose an edit's note.
     if (ran.deny === undefined)
-      await quietly($, 'proof tool', () => proofToolDone($, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, hasFailed: ran.isError === true, agentId: e.agentId ?? null }))
+      await quietly($, 'proof tool', () => proofToolDone($, proofOps($), { id: e.tool_use_id, tool: String(e.tool), input: e as unknown as Record<string, unknown>, hasFailed: ran.isError === true, agentId: e.agentId ?? null }))
     await quietly($, 'tool result', async () => {
       const didRun = ran.deny === undefined
       // An approved ask settled at tool.run; what is left here was refused, or never reached the run.
@@ -1314,7 +1314,7 @@ export const register: Register = (on, options) => {
   // when the tool finishes.
   on('tool.run', async ($, e, next) => {
     await quietly($, 'ask settle', async () => void (await settleAsk($, e.tool_use_id, true)))
-    await quietly($, 'proof edit', () => proofEditRuns($, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, agentId: e.agentId ?? null }))
+    await quietly($, 'proof edit', () => proofEditRuns(e.tool_use_id, $, proofOps($), { tool: String(e.tool), input: e as unknown as Record<string, unknown>, agentId: e.agentId ?? null }))
     return next(e)
   })
 

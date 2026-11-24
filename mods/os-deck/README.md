@@ -2,7 +2,7 @@
 
 **English** · [Português](README.pt-BR.md)
 
-**722 automated tests** (695 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
+**727 automated tests** (700 written for os-deck) · **[a changelog for every release](CHANGELOG.md)** · [what's original here](#what-os-deck-adds-over-flightdeck)
 
 ![The os-deck mascot changing states: thinking, reading, editing, running a command, subagents, waiting for your ok, failing, compacting, done, idle and asleep](docs/media/mascot-states.gif)
 
@@ -136,9 +136,9 @@ What to know before you press allow:
 - On Windows, an npm check is refused where a program it runs is a link in `node_modules/.bin`: setup follows no link there, as one could lead to a network share.
 - An npm check is refused under a workspace of a folder above, which would lend it config nobody was shown.
 - An npm check is refused where a folder's name holds the character that separates PATH entries (`;` on Windows), which would send npm into another folder.
-- An edit counts as inside a repository only where the tool named it by a full path. A relative one, or one with no drive or with `~`, counts as outside: which folder it was resolved from is not known.
-- An edit is placed as it starts to run and again as it returns, and one that ran counts even if it failed. A process that moves folders or links under the write itself can still hide where it landed.
-- An edit still running, or waiting on your permission, as a task completes counts as that task's, even if it is denied afterwards.
+- An edit counts as inside a repository only where the tool named it by a full path. A relative one, or one with no drive or with `~`, counts as outside: which folder it was resolved from is not known. So does one over 1,024 characters, which is not followed.
+- An edit is placed as it starts to run, with the path your settings' hooks left it, and again as it returns, and one that ran counts even if it failed. A process that moves folders or links under the write itself can still hide where it landed.
+- An edit still running as a task completes counts as that task's. One still waiting on your permission counts as outside, so the task cannot verify: where it would land is not looked at before you allow it.
 - A check that has started when you begin another turn is left to finish; none is started after that.
 - A claim you never reviewed, even one replaced or reopened since, keeps its repository at "to review" for the session (its last 1,000 claims). Only its newest claim has a button.
 - A review covers only the repositories it listed.
@@ -249,7 +249,7 @@ claude plugin uninstall os-deck@os-mods
 
 ## Claude Code versions validated
 
-2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.5.1 passed its 722 tests on the 2.1.330 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
+2.1.301 on macOS (Darwin 25.3). The `cswap` account was validated on 2.1.302 on macOS, with claude-swap and two accounts. Version 0.5.2 passed its 727 tests on the 2.1.331 test kit on Windows 11, which runs the dock and the surface module in a simulated terminal; it has not yet been seen in an interactive session. Ubuntu is not validated; the mod does not depend on the system beyond `git` and, optionally, `gh` and `cswap`.
 
 ## License
 

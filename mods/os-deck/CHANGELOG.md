@@ -2,6 +2,15 @@
 
 **English** · [Português](CHANGELOG.pt-BR.md)
 
+## os-deck 0.5.2
+
+What the independent review of 0.5.1 found. None of it let an agent reach Verified.
+
+- **An edit still waiting on your permission as its task completes keeps that task from verifying.** It was placed as the task completed, so a folder relinked before you allowed it could hide where it landed.
+- **An edit's path is no longer followed through links before you allow it.**
+- **An edit whose path a settings hook rewrote is placed where it ran,** as it returns as well as before it writes.
+- **A path over 1,024 characters is outside, without being walked:** a very deep one could hold the tool call for seconds.
+
 ## os-deck 0.5.1
 
 - **Fixed a false Verified in 0.5.0.** In a Windows folder with case sensitivity on, an edit to a folder one case apart from an allowed repository (`Repo` beside `repo`) counted as inside it. Such an edit is now outside, and the task reads Inconclusive.
